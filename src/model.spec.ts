@@ -7,8 +7,8 @@ import { reflect, ReflectedClass } from "typescript-rtti";
 import { UnknownRecord } from "./types";
 
 @Model({
-  fromXML({ constructor, properties }) {
-    return new constructor(properties);
+  fromXML({ model, properties }) {
+    return new model.type(properties);
   },
 })
 class Book {
@@ -26,8 +26,8 @@ class Book {
 }
 
 @Model<Library>({
-  fromXML({ constructor, properties }) {
-    return new constructor(properties.name, ...(properties.books as Book[]));
+  fromXML({ model, properties }) {
+    return new model.type(properties.name, ...(properties.books as Book[]));
   },
 })
 class Library {
@@ -84,18 +84,19 @@ describe("Library Example", () => {
 });
 
 @Model({
-  fromXML({ constructor, properties }) {
-    return new constructor(properties);
+  fromXML({ model, properties }) {
+    return new model.type(properties);
   },
 })
 class A {
   propA: string = "";
   propB: boolean = true;
-  @Prop({ tagname: "b" })
+  @Prop({ tagname: "b", inline: true })
   propC: B[] = [];
   @Prop({ tagname: "propd" })
   propD: 0 | 1 = 0;
   equals(a: A) {
+    //
     if (
       this.propA !== a.propA ||
       this.propB !== a.propB ||
@@ -117,8 +118,8 @@ class A {
 }
 
 @Model({
-  fromXML({ constructor, properties }) {
-    return new constructor(properties);
+  fromXML({ model, properties }) {
+    return new model.type(properties);
   },
 })
 class B {
@@ -142,12 +143,14 @@ describe("Edgy Cases", () => {
     instance.propC.push(b);
   }
 
-  const instanceXMLString = `<a>
+  const instanceXMLString = XML.stringify(
+    XML.parse(`<a>
   <prop-a>${instance.propA}</prop-a>
   <prop-b>${instance.propB}</prop-b>
   ${instance.propC.map((b) => `<b><prop-a>${b.propA}</prop-a></b>`).join("")}
   <propd>${instance.propD}</propd>
-</a>`;
+</a>`)
+  );
 
   it("should give right type infos", () => {
     const reflectedA = reflect(A) as unknown as ReflectedClass;
@@ -161,14 +164,15 @@ describe("Edgy Cases", () => {
     const ModelAPropDType = reflectedA.getProperty("propD").type;
     expect(ModelAPropDType.is("union")).to.be.true;
   });
-  // it("Object -> XML", () => {
-  //   const xml = getModel(Library).toXMLElement(library);
-  //   expect(XML.stringify(xml)).to.equal(libraryXMLString);
-  // });
+
   it("XML -> Object", () => {
     const parsed = getModel(A).fromXML(instanceXMLString);
     expect(parsed instanceof A).to.be.true;
     const equals = instance.equals(parsed as A);
     expect(equals).to.be.true;
+  });
+  it("Object -> XML", () => {
+    const xml = getModel(A).toXML(instance);
+    expect(XML.stringify(xml)).to.equal(instanceXMLString);
   });
 });

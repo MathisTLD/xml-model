@@ -1,24 +1,19 @@
 import "reflect-metadata";
-import type { Constructor, ReflectedProperty } from "typescript-rtti";
+import type { Constructor } from "typescript-rtti";
 import { reflect } from "typescript-rtti";
 
-import { Middleware } from "../middleware";
-import { fromXMLOptions, fromXMLMiddlewareContext, fromXML } from "../from-xml";
-import { toXMLOptions, toXMLMiddlewareContext, toXML } from "../to-xml";
-import { XMLModelProperty, XMLRootRecord } from "./types";
+import { MiddlewareChain, resolve } from "../middleware";
+import {
+  XMLModelProperty,
+  XMLModelOptions,
+  XMLModelPropertyOptions,
+  PropertiesRecord,
+  XMLPropertiesRecord,
+} from "./types";
 import { getPropertyConversionOptions } from "./property";
 import { XMLRoot } from "../types";
 import XML from "../xml";
 import { defaults } from "../defaults";
-
-interface ConversionOptions<T> {
-  properties: {
-    fromXML: fromXMLOptions<T>; // TODO: typing
-    toXML: toXMLOptions<T>;
-  };
-  fromXML: fromXMLOptions<T>; // TODO: typing
-  toXML: toXMLOptions<T>;
-}
 
 function* ParentChain(constructor: Constructor<unknown>) {
   let parent = Object.getPrototypeOf(constructor);
@@ -46,151 +41,164 @@ function getParentModel(model: XMLModel<any>) {
   return null;
 }
 
-export interface XMLModelOptions<T> {
-  fromXML?: Middleware<
-    fromXMLMiddlewareContext & {
-      properties: { [key in keyof T]: unknown };
-      model: XMLModel<T>;
-      constructor: Constructor<T>;
-    },
-    T
-  >;
+export interface XMLModelConversionOptions<T> {
+  fromXML?: XMLModelOptions<T>["fromXML"]["middlewares"][number];
   tagname?: string;
-  toXML?: Middleware<
-    toXMLMiddlewareContext<T> & {
-      properties: Partial<XMLRootRecord<T>>;
-      model: XMLModel<T>;
-    },
-    XMLRoot
-  >;
+  toXML?: XMLModelOptions<T>["toXML"]["middlewares"][number];
 }
 
 export class XMLModel<T = any> {
-  conversionOptions?: ConversionOptions<T>;
+  options: XMLModelOptions<T>;
   constructor(
     readonly type: Constructor<T>,
-    readonly options: XMLModelOptions<T>
-  ) {}
-  private resolveConversionOptions(): ConversionOptions<T> {
-    const parentModel = getParentModel(this);
-    const options: ConversionOptions<T> = {
-      properties: {
-        toXML: {
-          get parent() {
-            return parentModel
-              ? parentModel.getConversionOptions().properties.toXML
-              : null;
-          },
-          middlewares: [],
+    options: XMLModelConversionOptions<T>
+  ) {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const model = this;
+    let parent: XMLModel<any> | null | undefined = undefined;
+    const getParent = () => {
+      if (typeof parent === "undefined") parent = getParentModel(this);
+      return parent;
+    };
+    let propertiesLoaded = false;
+    const properties: XMLModelOptions<T>["properties"] = {
+      options: new Map<XMLModelProperty<T>, XMLModelPropertyOptions<T>>(),
+      fromXML: {
+        get parent() {
+          return getParent()?.options.properties.fromXML || null;
         },
-        fromXML: {
-          get parent() {
-            return parentModel
-              ? parentModel.getConversionOptions().properties.fromXML
-              : null;
+        middlewares: [
+          (context, next) => {
+            const record: PropertiesRecord<T> = getParent() ? next() : {};
+            properties.options.forEach((property) => {
+              const xml = context.xml;
+              const elements = property.resolveElements({
+                model,
+                xml,
+                property,
+              });
+              record[property.name] = property.fromXML({
+                model,
+                xml: context.xml,
+                property,
+                elements,
+              });
+            });
+            return record;
           },
-          middlewares: [],
-        },
+        ],
       },
       toXML: {
         get parent() {
-          return parentModel ? parentModel.getConversionOptions().toXML : null;
+          return getParent()?.options.properties.toXML || null;
         },
-        middlewares: [],
-      },
-      fromXML: {
-        get parent() {
-          return parentModel
-            ? parentModel.getConversionOptions().fromXML
-            : null;
-        },
-        middlewares: [],
+        middlewares: [
+          (context, next) => {
+            const record: XMLPropertiesRecord<T> = getParent() ? next() : {};
+            properties.options.forEach((options) => {
+              record[options.name] = options.toXML({
+                model,
+                object: context.object,
+
+                property: options,
+                value: context.object[options.name],
+              });
+            });
+            return record;
+          },
+        ],
       },
     };
-    const properties = reflect(this.type).ownProperties.filter(
-      (prop) => typeof prop.host.constructor.prototype[prop.name] !== "function"
-    ); // filter out methods like String.prototype.concat etc... that are seen as properties
+    const loadProperties = () => {
+      const props = reflect(this.type).ownProperties.filter(
+        (prop) =>
+          typeof prop.host.constructor.prototype[prop.name] !== "function"
+      ); // filter out methods like String.prototype.concat etc... that are seen as properties
 
-    const propertyConversionOptions = properties.map((property) =>
-      getPropertyConversionOptions(
-        this.type,
-        property.name as XMLModelProperty<T>
-      )
-    );
+      props.forEach((property) => {
+        const options = getPropertyConversionOptions(
+          this.type,
+          property.name as XMLModelProperty<T>
+        );
+        if (!options.ignored) {
+          properties.options.set(property.name as XMLModelProperty<T>, options);
+        }
+      });
+      propertiesLoaded = true;
+    };
 
-    /* Properties */
-    // from XML
-    function getProperties(context: fromXMLMiddlewareContext) {
-      const props = {} as Parameters<
-        NonNullable<XMLModelOptions<T>["fromXML"]>
-      >[0]["properties"];
-      for (const prop of propertyConversionOptions) {
-        props[prop.name as keyof T] = prop.fromXML(context) as T[keyof T];
-      }
-      return props;
-    }
-    // to XML
-    function getXMLProperties(context: toXMLMiddlewareContext<T>) {
-      const record: Partial<XMLRootRecord<T>> = {};
-      for (const prop of propertyConversionOptions) {
-        record[prop.name as keyof T] = prop.toXML(context); // pass context as-is, property's value will be extracted later
-      }
-      return record;
-    }
-
-    /* Global */
-    // from XML
-    options.fromXML.middlewares.push((context, next) =>
-      (
-        this.options.fromXML ||
-        (defaults.fromXML as Required<XMLModelOptions<T>>["fromXML"])
-      )(
-        {
-          ...context,
-          get properties() {
-            return getProperties(context);
-          },
-          model: this,
-          constructor: this.type,
+    this.options = {
+      get properties() {
+        if (!propertiesLoaded) loadProperties();
+        return properties;
+      },
+      fromXML: {
+        middlewares: [],
+        get parent() {
+          return getParent()?.options.fromXML || null;
         },
-        next
-      )
-    );
-    // to XML
-    options.toXML.middlewares.push((context, next) =>
-      (
-        this.options.toXML ||
-        (defaults.toXML as Required<XMLModelOptions<T>>["toXML"])
-      )(
-        {
-          ...context,
-          get properties() {
-            return getXMLProperties(context);
-          },
-          model: this,
+      },
+      toXML: {
+        middlewares: [],
+        get parent() {
+          return getParent()?.options.toXML || null;
         },
-        next
-      )
-    );
-
-    return options;
-  }
-  getConversionOptions() {
-    if (!this.conversionOptions) {
-      this.conversionOptions = this.resolveConversionOptions();
+      },
+      get tagname() {
+        return options.tagname || defaults.tagnameFromModel(model);
+      },
+    };
+    if (!getParent()) {
+      this.options.fromXML.middlewares.push((...args) =>
+        defaults.fromXML(...args)
+      );
+      this.options.toXML.middlewares.push((...args) => defaults.toXML(...args));
     }
-    return this.conversionOptions;
+    if (options.fromXML) this.options.fromXML.middlewares.push(options.fromXML);
+    if (options.toXML) this.options.toXML.middlewares.push(options.toXML);
   }
   fromXML(xml: XMLRoot | string) {
     const _xml = typeof xml === "string" ? XML.parse(xml) : xml;
-    return fromXML(_xml, this.getConversionOptions().fromXML);
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const model = this;
+    const context = {
+      xml: _xml,
+      get properties() {
+        const propContext = {
+          xml: _xml,
+          model,
+        };
+        return resolve(
+          MiddlewareChain(model.options.properties.fromXML),
+          propContext
+        );
+      },
+      model,
+    };
+    return resolve(MiddlewareChain(this.options.fromXML), context);
   }
-  toXML(instance: any) {
+  toXML(instance: object) {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const model = this;
     if (instance instanceof this.type || instance.constructor === this.type) {
       // intanceof won't work with type "String" for example
-      return toXML(instance, this.getConversionOptions().toXML);
+      const context = {
+        object: instance as unknown as T,
+        get properties() {
+          const propContext = {
+            object: instance,
+            model,
+          };
+          return resolve(
+            MiddlewareChain(model.options.properties.toXML),
+            propContext as any
+          );
+        },
+        model: this,
+      };
+      return resolve(MiddlewareChain(this.options.toXML), context);
     } else {
-      throw new Error(
+      throw new TypeError(
         `provided object is not an instance of ${this.type.name}`
       );
     }
@@ -202,10 +210,10 @@ export class XMLModel<T = any> {
 
 export function createModel<T>(
   type: Constructor<T>,
-  options: XMLModelOptions<T>
+  options: XMLModelConversionOptions<T>
 ): XMLModel<T> {
   if (findModel(type)) {
-    throw new Error(`a model for type ${type.name} already exists`);
+    throw new TypeError(`a model for type ${type.name} already exists`);
   }
   const model = new XMLModel(type, options);
   Models.set(type, model as XMLModel<unknown>);
@@ -222,20 +230,13 @@ export function findModel<T>(id: ModelID<T>) {
 export function getModel<T>(id: ModelID<T>) {
   const model = findModel(id);
   if (model) return model;
-  else throw new Error(`couln't find model for type ${id.name}`);
-}
-
-function ensureModel<T>(id: ModelID<T>) {
-  return findModel<T>(id) || createModel<T>(id, {});
+  else throw new TypeError(`couln't find model for type ${id.name}`);
 }
 
 // Model decorator
-function ModelDecoratorFactory<T>(options?: XMLModelOptions<T>) {
+function ModelDecoratorFactory<T>(options?: XMLModelConversionOptions<T>) {
   return function (constructor: Constructor<T>): void {
-    const model = ensureModel(constructor);
-    if (options) {
-      Object.assign(model.options, options);
-    }
+    findModel<T>(constructor) || createModel<T>(constructor, options || {});
   };
 }
 export { ModelDecoratorFactory as Model };

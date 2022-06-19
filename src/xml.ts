@@ -18,7 +18,7 @@ export function getContent(xml: XMLElement) {
     if (content.type === "text") return content.text;
   }
   if (!xml.elements) return "";
-  throw new Error(`can't get text from XMLElement: ${JSON.stringify(xml)}`);
+  throw new TypeError(`can't get text from XMLElement: ${JSON.stringify(xml)}`);
 }
 
 export function fromContent(content: string): {
@@ -45,7 +45,7 @@ export function fromContent(
   if (tag) el.name = tag;
   if (attributes) {
     if (!el.name)
-      throw new Error(
+      throw new TypeError(
         "please provide a name if you want to provide attributes"
       );
     el.attributes = attributes;

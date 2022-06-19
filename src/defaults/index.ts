@@ -1,60 +1,67 @@
-import { XMLModelOptions, XMLModel } from "../model";
-import {
-  getPropertyConversionOptions,
-  XMLModelPropertyOptions,
-} from "../model/property";
+import type { XMLModelPropertyOptions } from "../model/types";
+
+import type { XMLModelOptions, XMLModel } from "../model/types";
 import { getModel } from "../model";
 
 import kebabCase from "lodash/kebabCase";
 import type { XMLElement, XMLRoot } from "../types";
-import { Constructor, ReflectedProperty } from "typescript-rtti";
 
-type defaults = {
+type defaults<T = any> = {
   // XML -> Object
-  fromXML: Required<XMLModelOptions<unknown>>["fromXML"];
-  propertySourceElements: Extract<
-    Required<XMLModelPropertyOptions<unknown>>["sourceElements"],
-    Function
-  >;
-  propertyFromXML: Required<XMLModelPropertyOptions<unknown>>["fromXML"];
+  fromXML: Required<XMLModelOptions<T>>["fromXML"]["middlewares"][number];
+  propertySourceElementsFilter: XMLModelPropertyOptions<T>["isSourceElement"];
+  propertyResolveSourceElements: XMLModelPropertyOptions<T>["resolveElements"];
+  propertyFromXML: Required<XMLModelPropertyOptions<T>>["fromXML"];
   // Object -> XML
-  toXML: Required<XMLModelOptions<unknown>>["toXML"];
+  toXML: Required<XMLModelOptions<T>>["toXML"]["middlewares"][number];
   tagnameFromModel: (model: XMLModel) => string;
-  resolveTagnameForModel: (model: XMLModel) => string;
-  tagnameFromProperty: (property: ReflectedProperty) => string;
-  resolveTagnameForProperty: (property: ReflectedProperty) => string;
-  propertyToXML: Required<XMLModelPropertyOptions<unknown>>["toXML"];
+  tagnameFromProperty: (property: XMLModelPropertyOptions<T>) => string;
+  propertyToXML: Required<XMLModelPropertyOptions<T>>["toXML"];
 };
 
 export const defaults: defaults = {
   fromXML() {
-    throw new Error(
+    throw new TypeError(
       "you should define 'defaults.fromXML' yourself or provide a 'fromXML' function to @Model() decorator's options"
     );
   },
-  propertySourceElements(element, property) {
-    return defaults.resolveTagnameForProperty(property) == element.name;
+  propertyResolveSourceElements(context) {
+    // We assume context.xml.elements is a single tag containing all the props
+    // FIXME: is it safe ?
+    const innerElements: XMLElement[] = context.xml.elements[0]?.elements || [];
+    return innerElements.filter((el) =>
+      context.property.isSourceElement(el, context)
+    );
+  },
+  propertySourceElementsFilter(element, context) {
+    return context.property.tagname == element.name;
   },
   propertyFromXML(context) {
+    // TODO: handle inline
     const prop = context.property;
-    const type = prop.type;
+    const elements = context.elements;
+    const type = context.property.reflected.type;
+    if (prop.reflected.isOptional && elements.length === 0) {
+      return undefined;
+    }
     if (type.is("class")) {
       const model = getModel(type.class);
-      return model.fromXML(context.xml);
+      return model.fromXML({ elements: context.elements });
     } else if (type.is("array")) {
-      const els = context.xml.elements;
       let arrayEl: XMLElement = {};
       if (
-        els.length === 1 &&
-        els[0].name === defaults.resolveTagnameForProperty(prop)
+        !prop.inline &&
+        elements.length === 1 &&
+        elements[0].name === prop.tagname
       ) {
         // we assume our array is contained in a root tag
-        arrayEl = els[0];
+        arrayEl = elements[0];
       } else if (
-        els.every((el) => el.name === defaults.resolveTagnameForProperty(prop))
+        prop.inline &&
+        elements.every((el) => el.name === prop.tagname)
       ) {
         // we assume our array is contained in xml.elements
-        arrayEl = context.xml;
+        arrayEl = { elements };
       }
       if (arrayEl.elements) {
         const elType = type.elementType;
@@ -82,7 +89,7 @@ export const defaults: defaults = {
         ) {
           // all elements of unions are litteral with same type
           const model = getModel(firstTypeCtor);
-          return model.fromXML(context.xml);
+          return model.fromXML({ elements });
         }
       }
     }
@@ -93,12 +100,14 @@ export const defaults: defaults = {
   /* Object -> XML */
   toXML({ properties, model }) {
     const elements: XMLElement[] = [];
-    model.reflectedClass.properties.forEach((prop) => {
-      if (prop.name in properties) {
+
+    model.options.properties.options.forEach((prop) => {
+      if (prop.name in properties && typeof prop.name !== "symbol") {
+        // FIXME: prop.name should never be a symbol anyway
         const _xml = properties[prop.name] as XMLRoot;
         // overwrite tagnames
         _xml.elements.forEach((el) => {
-          (el.name = defaults.resolveTagnameForProperty(prop)), // TODO: configurable ?
+          (el.name = prop.tagname), // TODO: configurable ?
             elements.push(el);
         });
       }
@@ -107,7 +116,7 @@ export const defaults: defaults = {
       elements: [
         {
           type: "element",
-          name: defaults.resolveTagnameForModel(model),
+          name: model.options.tagname,
           elements,
         },
       ],
@@ -116,40 +125,57 @@ export const defaults: defaults = {
   tagnameFromModel(model) {
     return kebabCase(model.type.name);
   },
-  resolveTagnameForModel(model) {
-    if (model.options.tagname) return model.options.tagname;
-    return defaults.tagnameFromModel(model);
-  },
   tagnameFromProperty(property) {
-    return kebabCase(property.name);
-  },
-  resolveTagnameForProperty(property) {
-    // TODO: try to use property's tagname param if exists
-    const options = getPropertyConversionOptions(
-      property.class.class as Constructor<any>,
-      property.name
-    );
-    if (options.tagname) return options.tagname;
-    return defaults.tagnameFromProperty(property);
+    return kebabCase(String(property.name));
   },
   propertyToXML(context) {
-    const type = context.property.type;
-    if (type.is("class")) {
-      const model = getModel(type.class);
-      return model.toXML(context.object);
-    } else if (type.is("array") && type.elementType.is("class")) {
-      const elementType = type.elementType;
-      if (elementType.is("class")) {
-        const model = getModel(elementType.class);
-        const elements: XMLElement[] = [];
-        (context.object as object[]).forEach((el) =>
-          elements.push(...model.toXML(el).elements)
-        );
-        return { elements: [{ type: "element", name: "array(", elements }] };
-      }
-      // TODO: handle other types of array
+    const property = context.property;
+    const type = property.reflected.type;
+    const value = context.value;
+    if (property.reflected.isOptional && typeof value === "undefined") {
+      return { elements: [] }; // FIXME should return unefined ???
     }
-    // TODO: should warn ???
-    return { elements: [] };
+    const getXML = () => {
+      if (type.is("class")) {
+        const model = getModel(type.class);
+        return model.toXML(value);
+      } else if (type.is("array") && type.elementType.is("class")) {
+        const elementType = type.elementType;
+        if (elementType.is("class")) {
+          const model = getModel(elementType.class);
+          const elements: XMLElement[] = [];
+          (value as object[]).forEach((el) =>
+            elements.push(...model.toXML(el).elements)
+          );
+          return { elements: [{ type: "element", name: "array", elements }] };
+        }
+        // TODO: handle other types of array
+      } else if (
+        type.is("union") &&
+        type.types.length &&
+        type.types[0].is("literal")
+      ) {
+        const firstType = type.types[0];
+        if (firstType.is("literal")) {
+          const firstTypeCtor = firstType.value.constructor;
+          if (
+            type.types.every(
+              (type) =>
+                type.is("literal") && type.value.constructor === firstTypeCtor
+            )
+          ) {
+            // all elements of unions are litteral with same type
+            const model = getModel(firstTypeCtor);
+            return model.toXML(context.value);
+          }
+        }
+      }
+      // TODO: should warn ???
+      return { elements: [] };
+    };
+    const xml = getXML();
+    if (context.property.inline)
+      return { elements: xml.elements.map((el) => el.elements || []).flat() };
+    else return xml;
   },
 };

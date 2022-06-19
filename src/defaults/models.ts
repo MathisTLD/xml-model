@@ -6,9 +6,7 @@ import { getContent, fromContent } from "../xml";
 createModel<string>(String as unknown as Constructor<string>, {
   toXML: (ctx) => {
     return {
-      elements: [
-        { type: "element", name: "string", ...fromContent(ctx.object) },
-      ],
+      elements: [fromContent(ctx.object, "string")],
     };
   },
   fromXML: (ctx) => {
@@ -20,9 +18,7 @@ createModel<string>(String as unknown as Constructor<string>, {
 createModel<number>(Number as unknown as Constructor<number>, {
   toXML: (ctx) => {
     return {
-      elements: [
-        { type: "element", name: "number", ...fromContent(String(ctx.object)) },
-      ],
+      elements: [fromContent(String(ctx.object), "number")],
     };
   },
   fromXML: (ctx) => {
