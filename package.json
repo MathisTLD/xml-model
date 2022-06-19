@@ -48,6 +48,5 @@
     "README.md"
   ],
   "description": "allows transparent XML <-> Object conversion in typescript",
-  "repository": "git@github.com:MathisTLD/xml-model.git",
-  "packageManager": "yarn@3.2.1"
+  "repository": "git@github.com:MathisTLD/xml-model.git"
 }
