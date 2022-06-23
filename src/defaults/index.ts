@@ -34,12 +34,17 @@ export const defaults: defaults = {
     );
   },
   propertySourceElementsFilter(element, context) {
-    return context.property.tagname == element.name;
+    return context.property.tagname === element.name;
   },
   propertyFromXML(context) {
     // TODO: handle inline
     const prop = context.property;
     const elements = context.elements;
+
+    if (prop.model) {
+      return prop.model.fromXML({ elements });
+    }
+
     const type = context.property.reflected.type;
     if (prop.reflected.isOptional && elements.length === 0) {
       return undefined;
@@ -56,22 +61,18 @@ export const defaults: defaults = {
       ) {
         // we assume our array is contained in a root tag
         arrayEl = elements[0];
-      } else if (
-        prop.inline &&
-        elements.every((el) => el.name === prop.tagname)
-      ) {
+      } else if (prop.inline) {
         // we assume our array is contained in xml.elements
         arrayEl = { elements };
       }
-      if (arrayEl.elements) {
-        const elType = type.elementType;
-        if (elType.is("class")) {
-          const model = getModel(elType.class);
-          const xmlInstances = arrayEl.elements.map((el) => ({
-            elements: [el],
-          }));
-          return xmlInstances.map((xml) => model.fromXML(xml));
-        }
+      const els = arrayEl.elements || [];
+      const elType = type.elementType;
+      if (elType.is("class")) {
+        const model = getModel(elType.class);
+        const xmlInstances = els.map((el) => ({
+          elements: [el],
+        }));
+        return xmlInstances.map((xml) => model.fromXML(xml));
       }
     } else if (
       type.is("union") &&
@@ -101,14 +102,17 @@ export const defaults: defaults = {
   toXML({ properties, model }) {
     const elements: XMLElement[] = [];
 
-    model.options.properties.options.forEach((prop) => {
+    model.resolveAllProperties().forEach((prop) => {
       if (prop.name in properties && typeof prop.name !== "symbol") {
         // FIXME: prop.name should never be a symbol anyway
         const _xml = properties[prop.name] as XMLRoot;
-        // overwrite tagnames
+
         _xml.elements.forEach((el) => {
-          (el.name = prop.tagname), // TODO: configurable ?
-            elements.push(el);
+          if (!prop.inline) {
+            // overwrite tagnames
+            el.name = prop.tagname; // TODO: configurable ?
+          }
+          elements.push(el);
         });
       }
     });
@@ -130,6 +134,11 @@ export const defaults: defaults = {
   },
   propertyToXML(context) {
     const property = context.property;
+
+    if (property.model) {
+      return property.model.toXML(context.value);
+    }
+
     const type = property.reflected.type;
     const value = context.value;
     if (property.reflected.isOptional && typeof value === "undefined") {

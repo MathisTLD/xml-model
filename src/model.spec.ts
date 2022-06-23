@@ -18,11 +18,6 @@ class Book {
     this.name = options.name;
     this.nbPages = options.nbPages;
   }
-  equals(book: Book) {
-    if (this.name !== book.name) return false;
-    if (this.nbPages !== book.nbPages) return false;
-    return true;
-  }
 }
 
 @Model<Library>({
@@ -36,14 +31,6 @@ class Library {
   constructor(name: string, ...books: Book[]) {
     this.name = name;
     this.books.push(...books);
-  }
-  equals(library: Library) {
-    if (this.name !== library.name) return false;
-    if (this.books.length !== library.books.length) return false;
-    for (let index = 0; index < this.books.length; index++) {
-      if (!this.books[index].equals(library.books[index])) return false;
-    }
-    return true;
   }
 }
 
@@ -79,7 +66,7 @@ describe("Library Example", () => {
   it("XML -> Object", () => {
     const parsedLibrary = getModel(Library).fromXML(libraryXMLString);
     expect(parsedLibrary instanceof Library).to.be.true;
-    expect(library.equals(parsedLibrary as Library)).to.be.true;
+    expect(parsedLibrary).to.deep.equal(library);
   });
 });
 
@@ -89,26 +76,12 @@ describe("Library Example", () => {
   },
 })
 class A {
-  propA: string = "";
-  propB: boolean = true;
+  propA = "";
+  propB = true;
   @Prop({ tagname: "b", inline: true })
   propC: B[] = [];
   @Prop({ tagname: "propd" })
   propD: 0 | 1 = 0;
-  equals(a: A) {
-    //
-    if (
-      this.propA !== a.propA ||
-      this.propB !== a.propB ||
-      this.propC.length !== a.propC.length ||
-      this.propD !== a.propD
-    )
-      return false;
-    for (let i = 0; i < this.propC.length; i++) {
-      if (!this.propC[i].equals(a.propC[i])) return false;
-    }
-    return true;
-  }
   constructor(record?: UnknownRecord) {
     if (record)
       Object.entries(record).forEach(([key, val]) => {
@@ -123,10 +96,7 @@ class A {
   },
 })
 class B {
-  propA: number = 0;
-  equals(b: B) {
-    return this.propA === b.propA;
-  }
+  propA = 0;
   constructor(record?: UnknownRecord) {
     if (record)
       Object.entries(record).forEach(([key, val]) => {
@@ -168,11 +138,29 @@ describe("Edgy Cases", () => {
   it("XML -> Object", () => {
     const parsed = getModel(A).fromXML(instanceXMLString);
     expect(parsed instanceof A).to.be.true;
-    const equals = instance.equals(parsed as A);
-    expect(equals).to.be.true;
+    expect(parsed).to.deep.equal(instance);
   });
   it("Object -> XML", () => {
     const xml = getModel(A).toXML(instance);
     expect(XML.stringify(xml)).to.equal(instanceXMLString);
+  });
+});
+
+@Model()
+class C extends B {
+  propB = 3;
+}
+
+describe("Inheritance", () => {
+  const cInstance = new C();
+  const cInstanceXMLString = `<c><prop-a>${cInstance.propA}</prop-a><prop-b>${cInstance.propB}</prop-b></c>`;
+
+  it("XML -> Object", () => {
+    expect(getModel(C).fromXML(cInstanceXMLString)).to.deep.equal(cInstance);
+  });
+  it("Object -> XML", () => {
+    expect(XML.stringify(getModel(C).toXML(cInstance))).to.equal(
+      cInstanceXMLString
+    );
   });
 });

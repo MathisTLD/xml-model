@@ -32,6 +32,7 @@ function resolvePropertyConversionOptions<T>(
       (options.fromXML || defaults.propertyFromXML)(context),
     toXML: (context) => (options.toXML || defaults.propertyToXML)(context),
   };
+  if (options?.model) _options.model = options.model;
 
   if (options?.sourceElements) {
     const _sourceElements = options.sourceElements;

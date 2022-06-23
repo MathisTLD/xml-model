@@ -31,6 +31,7 @@ export interface XMLModelPropertyOptions<T> {
   tagname: string;
   ignored: boolean;
   inline: boolean;
+  model?: XMLModel<any>;
   // from XML
   isSourceElement: (
     element: XMLElement,
@@ -55,6 +56,7 @@ export interface CreateXMLModelPropertyOptions<T> {
   fromXML?: XMLModelPropertyOptions<T>["fromXML"];
   inline?: boolean;
   ignore?: boolean;
+  model?: XMLModelPropertyOptions<T>["model"];
 }
 
 /* MODEL */
@@ -74,6 +76,7 @@ export interface toXMLContext<T> {
   model: XMLModel<T>;
 }
 export interface XMLModelOptions<T> {
+  parent?: XMLModel<T>;
   properties: {
     fromXML: ConversionOptions<
       Omit<fromXMLContext<T>, "properties">,
@@ -91,9 +94,10 @@ export interface XMLModelOptions<T> {
 }
 
 export interface CreateXMLModelOptions<T> {
+  parent?: XMLModelOptions<T>["parent"];
   fromXML?: XMLModelOptions<T>["fromXML"]["middlewares"][number];
-  tagname?: string;
   toXML?: XMLModelOptions<T>["toXML"]["middlewares"][number];
+  tagname?: XMLModelOptions<T>["tagname"];
 }
 
 export { XMLModel };

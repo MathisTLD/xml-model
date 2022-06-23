@@ -68,6 +68,11 @@ export function setAttribute(
   xml.attributes[attribute] = value;
 }
 
+export function deleteAttribute(xml: XMLElement, attribute: string) {
+  if (!xml.attributes) return;
+  delete xml.attributes[attribute];
+}
+
 const XML = {
   parse,
   stringify,
@@ -75,6 +80,7 @@ const XML = {
   getContent,
   addElement,
   setAttribute,
+  deleteAttribute,
 };
 
 export default XML;

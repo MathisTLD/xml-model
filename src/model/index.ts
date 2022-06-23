@@ -9,6 +9,7 @@ import {
   XMLModelPropertyOptions,
   PropertiesRecord,
   XMLPropertiesRecord,
+  CreateXMLModelOptions,
 } from "./types";
 import { getPropertyConversionOptions } from "./property";
 import { XMLRoot } from "../types";
@@ -32,6 +33,7 @@ function* ParentChain(constructor: Constructor<unknown>) {
 }
 
 function getParentModel(model: XMLModel<any>) {
+  if (model.options.parent) return model.options.parent;
   for (const constructor of ParentChain(model.type)) {
     const model = findModel(constructor);
     if (model) {
@@ -41,17 +43,11 @@ function getParentModel(model: XMLModel<any>) {
   return null;
 }
 
-export interface XMLModelConversionOptions<T> {
-  fromXML?: XMLModelOptions<T>["fromXML"]["middlewares"][number];
-  tagname?: string;
-  toXML?: XMLModelOptions<T>["toXML"]["middlewares"][number];
-}
-
 export class XMLModel<T = any> {
   options: XMLModelOptions<T>;
   constructor(
     readonly type: Constructor<T>,
-    options: XMLModelConversionOptions<T>
+    options: CreateXMLModelOptions<T>
   ) {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const model = this;
@@ -77,12 +73,23 @@ export class XMLModel<T = any> {
                 xml,
                 property,
               });
-              record[property.name] = property.fromXML({
-                model,
-                xml: context.xml,
-                property,
-                elements,
-              });
+              try {
+                record[property.name] = property.fromXML({
+                  model,
+                  xml: context.xml,
+                  property,
+                  elements,
+                });
+              } catch (error) {
+                throw new XMLConversionError(
+                  `[Model: ${
+                    context.model.type.name
+                  }] failed to convert prop <${String(
+                    property.name
+                  )}> from XML`,
+                  error
+                );
+              }
             });
             return record;
           },
@@ -96,13 +103,22 @@ export class XMLModel<T = any> {
           (context, next) => {
             const record: XMLPropertiesRecord<T> = getParent() ? next() : {};
             properties.options.forEach((options) => {
-              record[options.name] = options.toXML({
-                model,
-                object: context.object,
+              try {
+                record[options.name] = options.toXML({
+                  model,
+                  object: context.object,
 
-                property: options,
-                value: context.object[options.name],
-              });
+                  property: options,
+                  value: context.object[options.name],
+                });
+              } catch (error) {
+                throw new XMLConversionError(
+                  `[Model: ${
+                    context.model.type.name
+                  }] failed to convert prop <${String(options.name)}> to XML`,
+                  error
+                );
+              }
             });
             return record;
           },
@@ -148,6 +164,8 @@ export class XMLModel<T = any> {
         return options.tagname || defaults.tagnameFromModel(model);
       },
     };
+    if (options.parent) this.options.parent = options.parent;
+
     if (!getParent()) {
       this.options.fromXML.middlewares.push((...args) =>
         defaults.fromXML(...args)
@@ -180,7 +198,10 @@ export class XMLModel<T = any> {
   toXML(instance: object) {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const model = this;
-    if (instance instanceof this.type || instance.constructor === this.type) {
+    if (
+      instance instanceof this.type ||
+      (typeof instance !== "undefined" && instance.constructor === this.type) // FIXME: allow instance to be Undefined ?
+    ) {
       // intanceof won't work with type "String" for example
       const context = {
         object: instance as unknown as T,
@@ -206,11 +227,34 @@ export class XMLModel<T = any> {
   get reflectedClass() {
     return reflect(this.type);
   }
+  resolveAllProperties() {
+    const properties = new Map<
+      string,
+      XMLModelPropertyOptions<any> & { model: any }
+    >();
+    const parent = getParentModel(this);
+    if (parent)
+      parent
+        .resolveAllProperties()
+        .forEach((prop, key) => properties.set(key, prop));
+    this.options.properties.options.forEach((options, key) =>
+      properties.set(
+        key,
+        new Proxy(options, {
+          get: (target, p, reciever) => {
+            if (p === "model") return this;
+            else return Reflect.get(target, p, reciever);
+          },
+        }) as NonNullable<ReturnType<typeof properties["get"]>>
+      )
+    );
+    return properties;
+  }
 }
 
 export function createModel<T>(
   type: Constructor<T>,
-  options: XMLModelConversionOptions<T>
+  options: CreateXMLModelOptions<T>
 ): XMLModel<T> {
   if (findModel(type)) {
     throw new TypeError(`a model for type ${type.name} already exists`);
@@ -234,7 +278,7 @@ export function getModel<T>(id: ModelID<T>) {
 }
 
 // Model decorator
-function ModelDecoratorFactory<T>(options?: XMLModelConversionOptions<T>) {
+function ModelDecoratorFactory<T>(options?: CreateXMLModelOptions<T>) {
   return function (constructor: Constructor<T>): void {
     findModel<T>(constructor) || createModel<T>(constructor, options || {});
   };
@@ -243,3 +287,4 @@ export { ModelDecoratorFactory as Model };
 export { Prop } from "./property";
 
 import "../defaults/models";
+import { XMLConversionError } from "../errors";

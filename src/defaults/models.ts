@@ -1,10 +1,10 @@
 import { createModel } from "../model";
-import { Constructor } from "../types";
+import { Constructor, XMLRoot } from "../types";
 import { getContent, fromContent } from "../xml";
 
 // string is <string>value</string>
 createModel<string>(String as unknown as Constructor<string>, {
-  toXML: (ctx) => {
+  toXML: (ctx): XMLRoot => {
     return {
       elements: [fromContent(ctx.object, "string")],
     };
@@ -16,7 +16,7 @@ createModel<string>(String as unknown as Constructor<string>, {
 
 // number is <number>value</number>
 createModel<number>(Number as unknown as Constructor<number>, {
-  toXML: (ctx) => {
+  toXML: (ctx): XMLRoot => {
     return {
       elements: [fromContent(String(ctx.object), "number")],
     };
