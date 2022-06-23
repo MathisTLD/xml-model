@@ -10,7 +10,7 @@
     "preversion": "npm test",
     "version": "npm run build",
     "postversion": "git push && git push --tags",
-    "test": "yarn lint && mocha -r ./register-ts-node --colors src/**/*.spec.ts",
+    "test": "npm run lint && mocha -r ./register-ts-node --colors src/**/*.spec.ts",
     "build": "run-p build:*",
     "build:main": "rimraf build/main && ttsc -p tsconfig.json",
     "build:module": "rimraf build/module && ttsc -p tsconfig.module.json",
