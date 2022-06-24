@@ -1,6 +1,6 @@
 {
   "name": "xml-model",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "main": "build/main/index.js",
   "typings": "build/main/index.d.ts",
   "module": "build/module/index.js",
