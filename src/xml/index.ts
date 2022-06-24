@@ -1,16 +1,15 @@
-import { xml2js, js2xml } from "xml-js";
-import { XMLElement, XMLRoot } from "./types";
+/**
+ * @rtti:skip
+ */
+import XMLJS from "./xml-js";
+
+import { XMLElement, XMLRoot } from "../types";
 
 export function parse(string: string) {
-  return xml2js(string) as XMLRoot;
+  return XMLJS.parse(string) as XMLRoot;
 }
 
-export function stringify(
-  xml: XMLRoot,
-  options?: Parameters<typeof js2xml>[1]
-) {
-  return js2xml(xml, options);
-}
+export const stringify = XMLJS.stringify;
 
 export function getContent(xml: XMLElement) {
   if (xml.elements?.length === 1) {
