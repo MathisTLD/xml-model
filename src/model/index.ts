@@ -1,4 +1,3 @@
-import "reflect-metadata";
 import type { Constructor } from "typescript-rtti";
 import { reflect } from "typescript-rtti";
 

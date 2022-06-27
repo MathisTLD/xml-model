@@ -1,6 +1,8 @@
 import "mocha";
 import { expect, assert } from "chai";
 
+import "reflect-metadata";
+
 import { Model, Prop, getModel } from "./model";
 import XML from "./xml";
 import { reflect, ReflectedClass } from "typescript-rtti";
