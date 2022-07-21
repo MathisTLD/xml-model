@@ -227,29 +227,26 @@ export class XMLModel<T = any> {
     return reflect(this.type);
   }
   resolveAllProperties() {
-    const properties = new Map<
-      string,
-      XMLModelPropertyOptions<any> & { model: any }
-    >();
+    type K = string;
+    type V = XMLModelPropertyOptions<any> & { model: any };
+    const ownProperties = new Map<K, V>();
     const parent = getParentModel(this);
-    if (parent)
-      parent.resolveAllProperties().forEach((prop, key) => {
-        properties.set(key, prop);
-      });
 
     this.options.properties.options.forEach((options, key) => {
-      properties.delete(key); // delete prop if already present to make sure it overrides parent's prop
-      properties.set(
+      ownProperties.set(
         key,
         new Proxy(options, {
           get: (target, p, reciever) => {
             if (p === "model") return this;
             else return Reflect.get(target, p, reciever);
           },
-        }) as NonNullable<ReturnType<typeof properties["get"]>>
+        }) as V // FIXME: is typing ok ?
       );
     });
-    return properties;
+    const res: Map<K, V> = parent
+      ? mergeMaps<K, V>(parent.resolveAllProperties(), ownProperties)
+      : ownProperties;
+    return res;
   }
 }
 
@@ -289,3 +286,4 @@ export { Prop } from "./property";
 
 import "../defaults/models";
 import { XMLConversionError } from "../errors";
+import mergeMaps from "../helper/merge-maps";
