@@ -234,10 +234,11 @@ export class XMLModel<T = any> {
     const parent = getParentModel(this);
     if (parent)
       parent.resolveAllProperties().forEach((prop, key) => {
-        properties.delete(key); // delete prop if already present
         properties.set(key, prop);
       });
-    this.options.properties.options.forEach((options, key) =>
+
+    this.options.properties.options.forEach((options, key) => {
+      properties.delete(key); // delete prop if already present to make sure it overrides parent's prop
       properties.set(
         key,
         new Proxy(options, {
@@ -246,8 +247,8 @@ export class XMLModel<T = any> {
             else return Reflect.get(target, p, reciever);
           },
         }) as NonNullable<ReturnType<typeof properties["get"]>>
-      )
-    );
+      );
+    });
     return properties;
   }
 }
