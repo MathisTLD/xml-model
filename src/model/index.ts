@@ -125,7 +125,7 @@ export class XMLModel<T = any> {
       },
     };
     const loadProperties = () => {
-      const props = reflect(this.type).ownProperties.filter(
+      const props = this.reflectedClass.ownProperties.filter(
         (prop) =>
           typeof prop.host.constructor.prototype[prop.name] !== "function"
       ); // filter out methods like String.prototype.concat etc... that are seen as properties

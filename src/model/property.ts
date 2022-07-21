@@ -16,7 +16,12 @@ function resolvePropertyConversionOptions<T>(
   const _options: XMLModelPropertyOptions<T> = {
     name: property as keyof T,
     get reflected() {
-      return reflect(constructor).getProperty(property);
+      const reflectedClass = reflect(constructor);
+      return (
+        reflectedClass.getOwnProperty(property) ||
+        reflectedClass.getProperty(property)
+      ); // patch bug in typescript-rtti
+      // TODO: remove when typescript-rtti is patched
     },
     get tagname() {
       return options.tagname || defaults.tagnameFromProperty(this);
