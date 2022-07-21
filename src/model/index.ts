@@ -233,9 +233,10 @@ export class XMLModel<T = any> {
     >();
     const parent = getParentModel(this);
     if (parent)
-      parent
-        .resolveAllProperties()
-        .forEach((prop, key) => properties.set(key, prop));
+      parent.resolveAllProperties().forEach((prop, key) => {
+        properties.delete(key); // delete prop if already present
+        properties.set(key, prop);
+      });
     this.options.properties.options.forEach((options, key) =>
       properties.set(
         key,
