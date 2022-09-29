@@ -41,14 +41,15 @@ export const defaults: defaults = {
     const prop = context.property;
     const elements = context.elements;
 
+    if (prop.reflected.isOptional && elements.length === 0) {
+      return undefined;
+    }
+
     if (prop.model) {
       return prop.model.fromXML({ elements });
     }
 
     const type = context.property.reflected.type;
-    if (prop.reflected.isOptional && elements.length === 0) {
-      return undefined;
-    }
     if (type.is("class")) {
       const model = getModel(type.class);
       return model.fromXML({ elements: context.elements });
@@ -135,15 +136,16 @@ export const defaults: defaults = {
   propertyToXML(context) {
     const property = context.property;
 
-    if (property.model) {
-      return property.model.toXML(context.value);
-    }
-
     const type = property.reflected.type;
     const value = context.value;
     if (property.reflected.isOptional && typeof value === "undefined") {
       return { elements: [] }; // FIXME should return unefined ???
     }
+
+    if (property.model) {
+      return property.model.toXML(value);
+    }
+
     const getXML = () => {
       if (type.is("class")) {
         const model = getModel(type.class);
