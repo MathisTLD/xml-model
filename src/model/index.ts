@@ -72,22 +72,27 @@ export class XMLModel<T = any> {
                 xml,
                 property,
               });
+              const propertyFromXMLContext = {
+                model,
+                xml: context.xml,
+                property,
+                elements,
+              };
               try {
-                record[property.name] = property.fromXML({
-                  model,
-                  xml: context.xml,
-                  property,
-                  elements,
-                });
-              } catch (error) {
-                throw new XMLConversionError(
-                  `[Model: ${
-                    context.model.type.name
-                  }] failed to convert prop <${String(
-                    property.name
-                  )}> from XML`,
-                  error
+                record[property.name] = property.fromXML(
+                  propertyFromXMLContext
                 );
+              } catch (error) {
+                if (error instanceof FromXMLConversionError) {
+                  // TODO: might add some more context
+                  throw error;
+                } else {
+                  throw new PropertyFromXMLConversionError(
+                    context,
+                    propertyFromXMLContext,
+                    error
+                  );
+                }
               }
             });
             return record;
@@ -102,21 +107,26 @@ export class XMLModel<T = any> {
           (context, next) => {
             const record: XMLPropertiesRecord<T> = getParent() ? next() : {};
             properties.options.forEach((options) => {
-              try {
-                record[options.name] = options.toXML({
-                  model,
-                  object: context.object,
+              const propertyToXMLContext = {
+                model,
+                object: context.object,
 
-                  property: options,
-                  value: context.object[options.name],
-                });
+                property: options,
+                value: context.object[options.name],
+              };
+              try {
+                record[options.name] = options.toXML(propertyToXMLContext);
               } catch (error) {
-                throw new XMLConversionError(
-                  `[Model: ${
-                    context.model.type.name
-                  }] failed to convert prop <${String(options.name)}> to XML`,
-                  error
-                );
+                if (error instanceof ToXMLConversionError) {
+                  // TODO: might add some more context
+                  throw error;
+                } else {
+                  throw new PropertyToXMLConversionError(
+                    context,
+                    propertyToXMLContext,
+                    error
+                  );
+                }
               }
             });
             return record;
@@ -285,5 +295,10 @@ export { ModelDecoratorFactory as Model };
 export { Prop } from "./property";
 
 import "../defaults/models";
-import { XMLConversionError } from "../errors";
+import {
+  FromXMLConversionError,
+  PropertyFromXMLConversionError,
+  PropertyToXMLConversionError,
+  ToXMLConversionError,
+} from "../errors";
 import mergeMaps from "../helper/merge-maps";
