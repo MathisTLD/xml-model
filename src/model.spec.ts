@@ -90,6 +90,8 @@ class A {
         (this[key as keyof A] as any) = val as any;
       });
   }
+  @Prop({ tagname: "array-e", inline: true })
+  arrayE: number[] = [];
 }
 
 @Model({
@@ -113,6 +115,7 @@ describe("Edgy Cases", () => {
     const b = new B();
     b.propA = i;
     instance.propC.push(b);
+    instance.arrayE.push(i * 100);
   }
 
   const instanceXMLString = XML.stringify(
@@ -121,6 +124,7 @@ describe("Edgy Cases", () => {
   <prop-b>${instance.propB}</prop-b>
   ${instance.propC.map((b) => `<b><prop-a>${b.propA}</prop-a></b>`).join("")}
   <propd>${instance.propD}</propd>
+  ${instance.arrayE.map((e) => `<array-e>${e}</array-e>`).join("\n")}
 </a>`)
   );
 

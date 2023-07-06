@@ -75,6 +75,7 @@ export const defaults: defaults = {
         }));
         return xmlInstances.map((xml) => model.fromXML(xml));
       }
+      // FIXME: other types should be handled
     } else if (
       type.is("union") &&
       type.types.length &&
@@ -109,10 +110,8 @@ export const defaults: defaults = {
         const _xml = properties[prop.name] as XMLRoot;
 
         _xml.elements.forEach((el) => {
-          if (!prop.inline) {
-            // overwrite tagnames
-            el.name = prop.tagname; // TODO: configurable ?
-          }
+          // overwrite tagnames
+          el.name = prop.tagname; // TODO: configurable ?
           elements.push(el);
         });
       }
@@ -150,7 +149,7 @@ export const defaults: defaults = {
       if (type.is("class")) {
         const model = getModel(type.class);
         return model.toXML(value);
-      } else if (type.is("array") && type.elementType.is("class")) {
+      } else if (type.is("array")) {
         const elementType = type.elementType;
         if (elementType.is("class")) {
           const model = getModel(elementType.class);
