@@ -38,7 +38,7 @@ export class ToXMLConversionError<T> extends Error {
   name = "ToXMLConversionError";
   constructor(
     public context: Omit<toXMLContext<T>, "properties">,
-    public error: unknown
+    public cause: unknown
   ) {
     const message = `[Model: ${context.model.type.name}] failed to convert to XML`;
     super(message);
@@ -50,9 +50,9 @@ export class PropertyToXMLConversionError<T> extends ToXMLConversionError<T> {
   constructor(
     context: Omit<toXMLContext<T>, "properties">,
     public propertyContext: PropertyToXMLContext<T>,
-    error: unknown
+    cause: unknown
   ) {
-    super(context, error);
+    super(context, cause);
     this.message = `[Model: ${
       context.model.type.name
     }] failed to convert prop <${String(
