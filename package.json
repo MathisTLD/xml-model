@@ -1,6 +1,10 @@
 {
   "name": "xml-model",
   "version": "1.0.0-beta.0",
+  "description": "allows transparent XML <-> Object conversion in typescript",
+  "license": "MIT",
+  "author": "MathisTLD",
+  "repository": "git@github.com:MathisTLD/xml-model.git",
   "type": "module",
   "exports": {
     ".": {
@@ -16,8 +20,6 @@
       "import": "./vite/dist/index.js"
     }
   },
-  "author": "MathisTLD",
-  "license": "MIT",
   "scripts": {
     "preversion": "npm test",
     "version": "npm run build",
@@ -28,7 +30,8 @@
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "fmt": "oxfmt",
-    "fmt:check": "oxfmt --check"
+    "fmt:check": "oxfmt --check",
+    "prepare": "husky"
   },
   "dependencies": {
     "xml-js": "^1.6.11"
@@ -36,13 +39,15 @@
   "devDependencies": {
     "@rollup/plugin-typescript": "*",
     "@types/node": "^24.10.11",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
     "marmotte": "^0.1.4",
+    "oxfmt": "^0.28.0",
+    "oxlint": "^1.43.0",
     "typescript": "*",
     "vite": "*",
     "vitest": "^4.0.18"
   },
-  "description": "allows transparent XML <-> Object conversion in typescript",
-  "repository": "git@github.com:MathisTLD/xml-model.git",
   "peerDependencies": {
     "@rollup/plugin-typescript": "^12.3.0",
     "reflect-metadata": "^0.1.14",
@@ -57,5 +62,8 @@
     "vite": {
       "optional": true
     }
+  },
+  "lint-staged": {
+    "*": "oxfmt --no-error-on-unmatched-pattern"
   }
 }
