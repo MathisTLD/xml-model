@@ -12,6 +12,7 @@ export function* MiddlewareChain<C, T>(options: ChainableOptions<C, T>) {
     }
     if (options.parent) options = options.parent;
     else return;
+    // oxlint-disable-next-line no-constant-condition
   } while (true);
 }
 type MiddlewareChain<C, T> = Iterator<Middleware<C, T>>;
