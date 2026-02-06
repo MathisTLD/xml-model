@@ -1,6 +1,6 @@
 {
   "name": "xml-model",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "allows transparent XML <-> Object conversion in typescript",
   "license": "MIT",
   "author": "MathisTLD",
