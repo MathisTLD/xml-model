@@ -1,6 +1,13 @@
 import type { Constructor } from "typescript-rtti";
 import { reflect } from "typescript-rtti";
 
+import {
+  FromXMLConversionError,
+  PropertyFromXMLConversionError,
+  PropertyToXMLConversionError,
+  ToXMLConversionError,
+} from "../errors";
+import mergeMaps from "../helper/merge-maps";
 import { MiddlewareChain, resolve } from "../middleware";
 import {
   XMLModelProperty,
@@ -14,6 +21,9 @@ import { getPropertyConversionOptions } from "./property";
 import { XMLRoot } from "../types";
 import XML from "../xml";
 import { defaults } from "../defaults";
+
+type ModelID<T> = Constructor<T>;
+export const Models = new Map<ModelID<unknown>, XMLModel<unknown>>();
 
 function* ParentChain(constructor: Constructor<unknown>) {
   let parent = Object.getPrototypeOf(constructor);
@@ -46,7 +56,7 @@ export class XMLModel<T = any> {
   options: XMLModelOptions<T>;
   constructor(
     readonly type: Constructor<T>,
-    options: CreateXMLModelOptions<T>
+    options: CreateXMLModelOptions<T>,
   ) {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const model = this;
@@ -79,19 +89,13 @@ export class XMLModel<T = any> {
                 elements,
               };
               try {
-                record[property.name] = property.fromXML(
-                  propertyFromXMLContext
-                );
+                record[property.name] = property.fromXML(propertyFromXMLContext);
               } catch (error) {
                 if (error instanceof FromXMLConversionError) {
                   // TODO: might add some more context
                   throw error;
                 } else {
-                  throw new PropertyFromXMLConversionError(
-                    context,
-                    propertyFromXMLContext,
-                    error
-                  );
+                  throw new PropertyFromXMLConversionError(context, propertyFromXMLContext, error);
                 }
               }
             });
@@ -121,11 +125,7 @@ export class XMLModel<T = any> {
                   // TODO: might add some more context
                   throw error;
                 } else {
-                  throw new PropertyToXMLConversionError(
-                    context,
-                    propertyToXMLContext,
-                    error
-                  );
+                  throw new PropertyToXMLConversionError(context, propertyToXMLContext, error);
                 }
               }
             });
@@ -136,14 +136,13 @@ export class XMLModel<T = any> {
     };
     const loadProperties = () => {
       const props = this.reflectedClass.ownProperties.filter(
-        (prop) =>
-          typeof prop.host.constructor.prototype[prop.name] !== "function"
+        (prop) => typeof prop.host.constructor.prototype[prop.name] !== "function",
       ); // filter out methods like String.prototype.concat etc... that are seen as properties
 
       props.forEach((property) => {
         const options = getPropertyConversionOptions(
           this.type,
-          property.name as XMLModelProperty<T>
+          property.name as XMLModelProperty<T>,
         );
         if (!options.ignored) {
           properties.options.set(property.name as XMLModelProperty<T>, options);
@@ -176,9 +175,7 @@ export class XMLModel<T = any> {
     if (options.parent) this.options.parent = options.parent;
 
     if (!getParent()) {
-      this.options.fromXML.middlewares.push((...args) =>
-        defaults.fromXML(...args)
-      );
+      this.options.fromXML.middlewares.push((...args) => defaults.fromXML(...args));
       this.options.toXML.middlewares.push((...args) => defaults.toXML(...args));
     }
     if (options.fromXML) this.options.fromXML.middlewares.push(options.fromXML);
@@ -195,10 +192,7 @@ export class XMLModel<T = any> {
           xml: _xml,
           model,
         };
-        return resolve(
-          MiddlewareChain(model.options.properties.fromXML),
-          propContext
-        );
+        return resolve(MiddlewareChain(model.options.properties.fromXML), propContext);
       },
       model,
     };
@@ -219,18 +213,13 @@ export class XMLModel<T = any> {
             object: instance,
             model,
           };
-          return resolve(
-            MiddlewareChain(model.options.properties.toXML),
-            propContext as any
-          );
+          return resolve(MiddlewareChain(model.options.properties.toXML), propContext as any);
         },
         model: this,
       };
       return resolve(MiddlewareChain(this.options.toXML), context);
     } else {
-      throw new TypeError(
-        `provided object is not an instance of ${this.type.name}`
-      );
+      throw new TypeError(`provided object is not an instance of ${this.type.name}`);
     }
   }
   get reflectedClass() {
@@ -250,7 +239,7 @@ export class XMLModel<T = any> {
             if (p === "model") return this;
             else return Reflect.get(target, p, reciever);
           },
-        }) as V // FIXME: is typing ok ?
+        }) as V, // FIXME: is typing ok ?
       );
     });
     const res: Map<K, V> = parent
@@ -262,7 +251,7 @@ export class XMLModel<T = any> {
 
 export function createModel<T>(
   type: Constructor<T>,
-  options: CreateXMLModelOptions<T>
+  options: CreateXMLModelOptions<T>,
 ): XMLModel<T> {
   if (findModel(type)) {
     throw new TypeError(`a model for type ${type.name} already exists`);
@@ -271,9 +260,6 @@ export function createModel<T>(
   Models.set(type, model as XMLModel<unknown>);
   return model;
 }
-
-type ModelID<T> = Constructor<T>;
-export const Models = new Map<ModelID<unknown>, XMLModel<unknown>>();
 
 export function findModel<T>(id: ModelID<T>) {
   return Models.get(id) as XMLModel<T> | undefined;
@@ -293,12 +279,3 @@ function ModelDecoratorFactory<T>(options?: CreateXMLModelOptions<T>) {
 }
 export { ModelDecoratorFactory as Model };
 export { Prop } from "./property";
-
-import "../defaults/models";
-import {
-  FromXMLConversionError,
-  PropertyFromXMLConversionError,
-  PropertyToXMLConversionError,
-  ToXMLConversionError,
-} from "../errors";
-import mergeMaps from "../helper/merge-maps";

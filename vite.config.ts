@@ -1,19 +1,13 @@
-# XML Model
-
-## Usage
-needs [typescript-rtti](https://github.com/typescript-rtti/typescript-rtti) and [ttypescript](https://github.com/cevek/ttypescript) to work
-
-To build something that relies in `xml-model` with vite
-
-```typescript
 import { defineConfig } from "vite";
-import typescript from "@rollup/plugin-typescript";
-import rtti from "typescript-rtti/dist/transformer";
 
 import { Lib } from "marmotte/vite/plugins/lib";
 
+import typescript from "@rollup/plugin-typescript";
+import rtti from "typescript-rtti/dist/transformer";
+
 export default defineConfig({
   plugins: [
+    // for tests
     typescript({
       transformers: {
         before: [
@@ -26,10 +20,8 @@ export default defineConfig({
       // optionally set declaration to `false` to let plugin dts handle the declarations
       // declaration: false,
     }),
+    Lib({
+      docs: false,
+    }),
   ],
 });
-
-```
-
-## Documentation
-check source

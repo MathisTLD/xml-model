@@ -1,5 +1,4 @@
-import "mocha";
-import { expect, assert } from "chai";
+import { describe, test, expect, assert } from "vitest";
 
 import "reflect-metadata";
 
@@ -7,6 +6,8 @@ import { Model, Prop, getModel } from "./model";
 import XML from "./xml";
 import { reflect, ReflectedClass } from "typescript-rtti";
 import { UnknownRecord } from "./types";
+
+import "./defaults/register";
 
 @Model({
   fromXML({ model, properties }) {
@@ -53,21 +54,21 @@ describe("Library Example", () => {
             `     <book>
         <name>${book.name}</name>
         <nb-pages>${book.nbPages}</nb-pages>
-      </book>`
+      </book>`,
         )
         .join("")}
     </books>
-</library>`
-    )
+</library>`,
+    ),
   );
 
-  it("Object -> XML", () => {
+  test("Object -> XML", () => {
     const xml = getModel(Library).toXML(library);
     expect(XML.stringify(xml)).to.equal(libraryXMLString);
   });
-  it("XML -> Object", () => {
+  test("XML -> Object", () => {
     const parsedLibrary = getModel(Library).fromXML(libraryXMLString);
-    expect(parsedLibrary instanceof Library).to.be.true;
+    expect(parsedLibrary instanceof Library).toBe(true);
     expect(parsedLibrary).to.deep.equal(library);
   });
 });
@@ -125,28 +126,26 @@ describe("Edgy Cases", () => {
   ${instance.propC.map((b) => `<b><prop-a>${b.propA}</prop-a></b>`).join("")}
   <propd>${instance.propD}</propd>
   ${instance.arrayE.map((e) => `<array-e>${e}</array-e>`).join("\n")}
-</a>`)
+</a>`),
   );
 
-  it("should give right type infos", () => {
+  test("should give right type infos", () => {
     const reflectedA = reflect(A) as unknown as ReflectedClass;
     assert(reflectedA === <ReflectedClass>(<unknown>reflect(A)));
-    expect(reflectedA.getProperty("propA").type.isClass(String)).to.be.true;
-    expect(reflectedA.getProperty("propB").type.isClass(Boolean)).to.be.true;
+    expect(reflectedA.getProperty("propA").type.isClass(String)).toBe(true);
+    expect(reflectedA.getProperty("propB").type.isClass(Boolean)).toBe(true);
     const ModelAPropCType = reflectedA.getProperty("propC").type;
-    expect(
-      ModelAPropCType.is("array") && ModelAPropCType.elementType.isClass(B)
-    ).to.be.true;
+    expect(ModelAPropCType.is("array") && ModelAPropCType.elementType.isClass(B)).toBe(true);
     const ModelAPropDType = reflectedA.getProperty("propD").type;
-    expect(ModelAPropDType.is("union")).to.be.true;
+    expect(ModelAPropDType.is("union")).toBe(true);
   });
 
-  it("XML -> Object", () => {
+  test("XML -> Object", () => {
     const parsed = getModel(A).fromXML(instanceXMLString);
-    expect(parsed instanceof A).to.be.true;
+    expect(parsed instanceof A).toBe(true);
     expect(parsed).to.deep.equal(instance);
   });
-  it("Object -> XML", () => {
+  test("Object -> XML", () => {
     const xml = getModel(A).toXML(instance);
     expect(XML.stringify(xml)).to.equal(instanceXMLString);
   });
@@ -161,12 +160,10 @@ describe("Inheritance", () => {
   const cInstance = new C();
   const cInstanceXMLString = `<c><prop-a>${cInstance.propA}</prop-a><prop-b>${cInstance.propB}</prop-b></c>`;
 
-  it("XML -> Object", () => {
+  test("XML -> Object", () => {
     expect(getModel(C).fromXML(cInstanceXMLString)).to.deep.equal(cInstance);
   });
-  it("Object -> XML", () => {
-    expect(XML.stringify(getModel(C).toXML(cInstance))).to.equal(
-      cInstanceXMLString
-    );
+  test("Object -> XML", () => {
+    expect(XML.stringify(getModel(C).toXML(cInstance))).to.equal(cInstanceXMLString);
   });
 });
