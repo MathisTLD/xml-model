@@ -2,7 +2,7 @@
 
 ## Usage
 
-needs [typescript-rtti](https://github.com/typescript-rtti/typescript-rtti) and [ttypescript](https://github.com/cevek/ttypescript) to work
+Needs [typescript-rtti](https://github.com/typescript-rtti/typescript-rtti) to retrieve type at runtime.
 
 To build something that relies in `xml-model` with vite
 
