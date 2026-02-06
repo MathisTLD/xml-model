@@ -6,6 +6,7 @@ import type {
   CreateXMLModelPropertyOptions,
 } from "./types";
 import { defaults } from "../defaults";
+import { isRegExp } from "../util/is-regexp";
 
 function resolvePropertyConversionOptions<T>(
   options: CreateXMLModelPropertyOptions<T>,
@@ -28,8 +29,8 @@ function resolvePropertyConversionOptions<T>(
     resolveElements: options.resolveElements
       ? options.resolveElements
       : (...args) => defaults.propertyResolveSourceElements(...args),
-    fromXML: (context) => (options.fromXML || defaults.propertyFromXML)(context),
-    toXML: (context) => (options.toXML || defaults.propertyToXML)(context),
+    fromXML: (context) => (options.fromXML ?? defaults.propertyFromXML)(context),
+    toXML: (context) => (options.toXML ?? defaults.propertyToXML)(context),
   };
   if (options?.model) _options.model = options.model;
 
@@ -37,9 +38,9 @@ function resolvePropertyConversionOptions<T>(
     const _sourceElements = options.sourceElements;
     if (typeof _sourceElements === "string") {
       _options.isSourceElement = (element) => element.name === _sourceElements;
-    } else if (_sourceElements && _sourceElements instanceof RegExp) {
+    } else if (isRegExp(_sourceElements)) {
       _options.isSourceElement = (element) => _sourceElements.test(element.name || "");
-    } else {
+    } else if (_sourceElements) {
       _options.isSourceElement = _sourceElements;
     }
   }
@@ -82,13 +83,13 @@ export function getPropertyConversionOptions<T>(
   property: XMLModelProperty<T>,
 ) {
   const options = findPropertyConversionOptions(constructor, property);
-  return options || resolvePropertyConversionOptions({}, constructor, property);
+  return options ?? resolvePropertyConversionOptions({}, constructor, property);
 }
 
 function PropDecoratorFactory<T = any>(options?: CreateXMLModelPropertyOptions<T>) {
   return function (prototype: any, property: XMLModelProperty<T>) {
     const _options = resolvePropertyConversionOptions(
-      options || {},
+      options ?? {},
       prototype.constructor,
       property,
     );

@@ -7,7 +7,7 @@ import {
   PropertyToXMLConversionError,
   ToXMLConversionError,
 } from "../errors";
-import mergeMaps from "../helper/merge-maps";
+import mergeMaps from "../util/merge-maps";
 import { MiddlewareChain, resolve } from "../middleware";
 import {
   XMLModelProperty,
@@ -21,9 +21,8 @@ import { getPropertyConversionOptions } from "./property";
 import { XMLRoot } from "../types";
 import XML from "../xml";
 import { defaults } from "../defaults";
-
-type ModelID<T> = Constructor<T>;
-export const Models = new Map<ModelID<unknown>, XMLModel<unknown>>();
+import { findModel, registrerModel } from "./registry";
+import registerBuiltIns from "./built-ins";
 
 function* ParentChain(constructor: Constructor<unknown>) {
   let parent = Object.getPrototypeOf(constructor);
@@ -175,8 +174,8 @@ export class XMLModel<T = any> {
     if (options.parent) this.options.parent = options.parent;
 
     if (!getParent()) {
-      this.options.fromXML.middlewares.push((...args) => defaults.fromXML(...args));
-      this.options.toXML.middlewares.push((...args) => defaults.toXML(...args));
+      this.options.fromXML.middlewares.push((ctx) => defaults.fromXML(ctx));
+      this.options.toXML.middlewares.push((ctx) => defaults.toXML(ctx));
     }
     if (options.fromXML) this.options.fromXML.middlewares.push(options.fromXML);
     if (options.toXML) this.options.toXML.middlewares.push(options.toXML);
@@ -198,7 +197,7 @@ export class XMLModel<T = any> {
     };
     return resolve(MiddlewareChain(this.options.fromXML), context);
   }
-  toXML(instance: object) {
+  toXML(instance: unknown) {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const model = this;
     if (
@@ -257,25 +256,20 @@ export function createModel<T>(
     throw new TypeError(`a model for type ${type.name} already exists`);
   }
   const model = new XMLModel(type, options);
-  Models.set(type, model as XMLModel<unknown>);
+  registrerModel(model as XMLModel<unknown>);
   return model;
-}
-
-export function findModel<T>(id: ModelID<T>) {
-  return Models.get(id) as XMLModel<T> | undefined;
-}
-
-export function getModel<T>(id: ModelID<T>) {
-  const model = findModel(id);
-  if (model) return model;
-  else throw new TypeError(`couln't find model for type ${id.name}`);
 }
 
 // Model decorator
 function ModelDecoratorFactory<T>(options?: CreateXMLModelOptions<T>) {
   return function (constructor: Constructor<T>): void {
-    findModel<T>(constructor) || createModel<T>(constructor, options || {});
+    if (!findModel(constructor)) createModel<T>(constructor, options || {});
   };
 }
+
+export { getModel } from "./registry";
 export { ModelDecoratorFactory as Model };
 export { Prop } from "./property";
+
+// register built-in models once everything is properly defined
+registerBuiltIns(createModel);

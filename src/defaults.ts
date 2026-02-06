@@ -1,37 +1,45 @@
-import type { XMLModelPropertyOptions } from "../model/types";
+import type {
+  fromXMLContext,
+  PropertyFromXMLContext,
+  PropertyToXMLContext,
+  toXMLContext,
+  XMLModelPropertyOptions,
+  XMLModel,
+} from "./model/types";
 
-import type { XMLModelOptions, XMLModel } from "../model/types";
-import { getModel } from "../model";
+import { getModel } from "./model/registry";
 
-import kebabCase from "lodash/kebabCase";
-import type { XMLElement, XMLRoot } from "../types";
+import { kebabCase } from "./util/kebab-case";
+import type { XMLElement, XMLRoot } from "./types";
 
-type defaults<T = any> = {
+interface Defaults {
   // XML -> Object
-  fromXML: Required<XMLModelOptions<T>>["fromXML"]["middlewares"][number];
-  propertySourceElementsFilter: XMLModelPropertyOptions<T>["isSourceElement"];
-  propertyResolveSourceElements: XMLModelPropertyOptions<T>["resolveElements"];
-  propertyFromXML: Required<XMLModelPropertyOptions<T>>["fromXML"];
+  fromXML<T>(context: fromXMLContext<T>): T;
+  propertySourceElementsFilter<T>(
+    ...args: Parameters<XMLModelPropertyOptions<T>["isSourceElement"]>
+  ): boolean;
+  propertyResolveSourceElements<T>(
+    context: Omit<PropertyFromXMLContext<T>, "elements">,
+  ): XMLElement[];
+  propertyFromXML<T>(context: PropertyFromXMLContext<T>): T[keyof T];
   // Object -> XML
-  toXML: Required<XMLModelOptions<T>>["toXML"]["middlewares"][number];
+  toXML<T>(context: toXMLContext<T>): XMLRoot;
   tagnameFromModel: (model: XMLModel) => string;
-  tagnameFromProperty: (property: XMLModelPropertyOptions<T>) => string;
-  propertyToXML: Required<XMLModelPropertyOptions<T>>["toXML"];
-};
+  tagnameFromProperty<T>(property: XMLModelPropertyOptions<T>): string;
+  propertyToXML<T>(context: PropertyToXMLContext<T>): XMLRoot;
+}
 
-export const defaults: defaults = {
+export const defaults: Defaults = {
   fromXML() {
     throw new TypeError(
-      "you should define 'defaults.fromXML' yourself or provide a 'fromXML' function to @Model() decorator's options"
+      "you should define 'defaults.fromXML' yourself or provide a 'fromXML' function to @Model() decorator's options",
     );
   },
   propertyResolveSourceElements(context) {
     // We assume context.xml.elements is a single tag containing all the props
     // FIXME: is it safe ?
     const innerElements: XMLElement[] = context.xml.elements[0]?.elements || [];
-    return innerElements.filter((el) =>
-      context.property.isSourceElement(el, context)
-    );
+    return innerElements.filter((el) => context.property.isSourceElement(el, context));
   },
   propertySourceElementsFilter(element, context) {
     return context.property.tagname === element.name;
@@ -55,11 +63,7 @@ export const defaults: defaults = {
       return model.fromXML({ elements: context.elements });
     } else if (type.is("array")) {
       let arrayEl: XMLElement = {};
-      if (
-        !prop.inline &&
-        elements.length === 1 &&
-        elements[0].name === prop.tagname
-      ) {
+      if (!prop.inline && elements.length === 1 && elements[0].name === prop.tagname) {
         // we assume our array is contained in a root tag
         arrayEl = elements[0];
       } else if (prop.inline) {
@@ -76,19 +80,12 @@ export const defaults: defaults = {
         return xmlInstances.map((xml) => model.fromXML(xml));
       }
       // FIXME: other types should be handled
-    } else if (
-      type.is("union") &&
-      type.types.length &&
-      type.types[0].is("literal")
-    ) {
+    } else if (type.is("union") && type.types.length && type.types[0].is("literal")) {
       const firstType = type.types[0];
       if (firstType.is("literal")) {
         const firstTypeCtor = firstType.value.constructor;
         if (
-          type.types.every(
-            (type) =>
-              type.is("literal") && type.value.constructor === firstTypeCtor
-          )
+          type.types.every((type) => type.is("literal") && type.value.constructor === firstTypeCtor)
         ) {
           // all elements of unions are litteral with same type
           const model = getModel(firstTypeCtor);
@@ -154,24 +151,17 @@ export const defaults: defaults = {
         if (elementType.is("class")) {
           const model = getModel(elementType.class);
           const elements: XMLElement[] = [];
-          (value as object[]).forEach((el) =>
-            elements.push(...model.toXML(el).elements)
-          );
+          (value as object[]).forEach((el) => elements.push(...model.toXML(el).elements));
           return { elements: [{ type: "element", name: "array", elements }] };
         }
         // TODO: handle other types of array
-      } else if (
-        type.is("union") &&
-        type.types.length &&
-        type.types[0].is("literal")
-      ) {
+      } else if (type.is("union") && type.types.length && type.types[0].is("literal")) {
         const firstType = type.types[0];
         if (firstType.is("literal")) {
           const firstTypeCtor = firstType.value.constructor;
           if (
             type.types.every(
-              (type) =>
-                type.is("literal") && type.value.constructor === firstTypeCtor
+              (type) => type.is("literal") && type.value.constructor === firstTypeCtor,
             )
           ) {
             // all elements of unions are litteral with same type

@@ -5,9 +5,7 @@ import "reflect-metadata";
 import { Model, Prop, getModel } from "./model";
 import XML from "./xml";
 import { reflect, ReflectedClass } from "typescript-rtti";
-import { UnknownRecord } from "./types";
-
-import "./defaults/register";
+import { UnknownRecord, XMLRoot } from "./types";
 
 @Model({
   fromXML({ model, properties }) {
@@ -37,15 +35,22 @@ class Library {
   }
 }
 
+function normalizeXML(xml: string | XMLRoot) {
+  const root = typeof xml === "string" ? XML.parse(xml) : xml;
+  return XML.stringify(root, { spaces: 2 });
+}
+
+function expectXMLEqual(a: string | XMLRoot, b: string | XMLRoot) {
+  expect(normalizeXML(a)).toEqual(normalizeXML(b));
+}
+
 describe("Library Example", () => {
   const library = new Library("test");
   for (let i = 1; i <= 4; i++) {
     const book = new Book({ name: `Book #${i}`, nbPages: Math.pow(10, i) });
     library.books.push(book);
   }
-  const libraryXMLString = XML.stringify(
-    XML.parse(
-      `<library>
+  const libraryXMLString = `<library>
     <name>${library.name}</name>
     <books>
       ${library.books
@@ -58,18 +63,16 @@ describe("Library Example", () => {
         )
         .join("")}
     </books>
-</library>`,
-    ),
-  );
+</library>`;
 
   test("Object -> XML", () => {
     const xml = getModel(Library).toXML(library);
-    expect(XML.stringify(xml)).to.equal(libraryXMLString);
+    expectXMLEqual(xml, libraryXMLString);
   });
   test("XML -> Object", () => {
     const parsedLibrary = getModel(Library).fromXML(libraryXMLString);
     expect(parsedLibrary instanceof Library).toBe(true);
-    expect(parsedLibrary).to.deep.equal(library);
+    expect(parsedLibrary).toEqual(library);
   });
 });
 
@@ -147,7 +150,7 @@ describe("Edgy Cases", () => {
   });
   test("Object -> XML", () => {
     const xml = getModel(A).toXML(instance);
-    expect(XML.stringify(xml)).to.equal(instanceXMLString);
+    expect(XML.stringify(xml)).toEqual(instanceXMLString);
   });
 });
 

@@ -12,7 +12,7 @@
     // "verbatimModuleSyntax": true
     "useDefineForClassFields": false,
     "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
+    "emitDecoratorMetadata": false,
     "strictPropertyInitialization": false // needed for XML models
   },
   "include": ["src"]
