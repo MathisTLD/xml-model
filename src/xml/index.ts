@@ -26,7 +26,7 @@ export function fromContent(content: string): {
 export function fromContent(
   content: string,
   tag: string,
-  attributes?: XMLElement["attributes"]
+  attributes?: XMLElement["attributes"],
 ): {
   type: "element";
   name: string;
@@ -36,17 +36,14 @@ export function fromContent(
 export function fromContent(
   content = "",
   tag?: string,
-  attributes?: XMLElement["attributes"]
+  attributes?: XMLElement["attributes"],
 ): XMLElement {
   const el: XMLElement = {
     elements: content ? [{ type: "text", text: String(content) }] : [],
   };
   if (tag) el.name = tag;
   if (attributes) {
-    if (!el.name)
-      throw new TypeError(
-        "please provide a name if you want to provide attributes"
-      );
+    if (!el.name) throw new TypeError("please provide a name if you want to provide attributes");
     el.attributes = attributes;
   }
   if (el.name) el.type = "element";
@@ -58,11 +55,7 @@ export function addElement(xml: XMLElement, element: XMLElement) {
   xml.elements.push(element);
 }
 
-export function setAttribute(
-  xml: XMLElement,
-  attribute: string,
-  value: string
-) {
+export function setAttribute(xml: XMLElement, attribute: string, value: string) {
   if (!xml.attributes) xml.attributes = {};
   xml.attributes[attribute] = value;
 }

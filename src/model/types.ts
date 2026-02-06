@@ -14,14 +14,12 @@ export type XMLPropertiesRecord<T> = {
   [key in keyof T]?: XMLRoot;
 };
 
-export interface PropertyToXMLContext<T>
-  extends Omit<toXMLContext<T>, "properties"> {
+export interface PropertyToXMLContext<T> extends Omit<toXMLContext<T>, "properties"> {
   property: XMLModelPropertyOptions<T>;
   value: T[keyof T]; // FIXME ???
 }
 
-export interface PropertyFromXMLContext<T>
-  extends Omit<fromXMLContext<T>, "properties"> {
+export interface PropertyFromXMLContext<T> extends Omit<fromXMLContext<T>, "properties"> {
   property: XMLModelPropertyOptions<T>;
   elements: XMLElement[];
 }
@@ -35,11 +33,9 @@ export interface XMLModelPropertyOptions<T> {
   // from XML
   isSourceElement: (
     element: XMLElement,
-    context: Omit<PropertyFromXMLContext<T>, "elements">
+    context: Omit<PropertyFromXMLContext<T>, "elements">,
   ) => boolean;
-  resolveElements: (
-    context: Omit<PropertyFromXMLContext<T>, "elements">
-  ) => XMLElement[];
+  resolveElements: (context: Omit<PropertyFromXMLContext<T>, "elements">) => XMLElement[];
   fromXML: (context: PropertyFromXMLContext<T>) => T[keyof T];
   // to XML
   toXML: (context: PropertyToXMLContext<T>) => XMLRoot;
@@ -47,10 +43,7 @@ export interface XMLModelPropertyOptions<T> {
 
 export interface CreateXMLModelPropertyOptions<T> {
   tagname?: string;
-  sourceElements?:
-    | string
-    | RegExp
-    | XMLModelPropertyOptions<T>["isSourceElement"];
+  sourceElements?: string | RegExp | XMLModelPropertyOptions<T>["isSourceElement"];
   resolveElements?: XMLModelPropertyOptions<T>["resolveElements"];
   toXML?: XMLModelPropertyOptions<T>["toXML"];
   fromXML?: XMLModelPropertyOptions<T>["fromXML"];
@@ -78,14 +71,8 @@ export interface toXMLContext<T> {
 export interface XMLModelOptions<T> {
   parent?: XMLModel<T>;
   properties: {
-    fromXML: ConversionOptions<
-      Omit<fromXMLContext<T>, "properties">,
-      PropertiesRecord<T>
-    >;
-    toXML: ConversionOptions<
-      Omit<toXMLContext<T>, "properties">,
-      XMLPropertiesRecord<T>
-    >;
+    fromXML: ConversionOptions<Omit<fromXMLContext<T>, "properties">, PropertiesRecord<T>>;
+    toXML: ConversionOptions<Omit<toXMLContext<T>, "properties">, XMLPropertiesRecord<T>>;
     options: Map<XMLModelProperty<T>, XMLModelPropertyOptions<T>>;
   };
   fromXML: ConversionOptions<fromXMLContext<T>, T>;

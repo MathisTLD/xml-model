@@ -16,10 +16,7 @@ export function* MiddlewareChain<C, T>(options: ChainableOptions<C, T>) {
 }
 type MiddlewareChain<C, T> = Iterator<Middleware<C, T>>;
 
-export function resolve<C, T>(
-  middlewares: MiddlewareChain<C, T>,
-  context: C
-): T {
+export function resolve<C, T>(middlewares: MiddlewareChain<C, T>, context: C): T {
   const next = (): T => {
     const { value: nextMiddleware, done } = middlewares.next();
     if (done || !nextMiddleware) {

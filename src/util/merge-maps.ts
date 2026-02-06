@@ -3,9 +3,7 @@ export default function mergeMaps<K, V>(...sources: Map<K, V>[]): Map<K, V> {
   sources.forEach((source) => {
     const overrides = new Map<K, V>();
     const additions = new Map<K, V>();
-    source.forEach((val, key) =>
-      (res.has(key) ? overrides : additions).set(key, val)
-    );
+    source.forEach((val, key) => (res.has(key) ? overrides : additions).set(key, val));
     if (overrides.size) {
       const entries = Array.from(res.entries());
       entries.forEach((entry) => {
