@@ -22,7 +22,13 @@ describe("vite plugin", () => {
   test("project built", async () => {
     expect(statSync(resolve(exampleProject, "dist")).isDirectory()).toBe(true);
     expect(statSync(resolve(exampleProject, "dist", "index.js")).isFile()).toBe(true);
-    const { stdout } = await exec(`node ${resolve(exampleProject, "dist", "index.js")}`);
-    expect(stdout).toBe("<my-class><foo>bar</foo></my-class>\n");
+  });
+  test("library works as intended", async () => {
+    expect((await exec(`node ${resolve(exampleProject, "dist", "test.js")}`)).stdout).toBe(
+      `{"foo":"test"}
+<my-class><foo>bar</foo></my-class>
+<my-class><foo>other</foo></my-class>
+`,
+    );
   });
 });

@@ -1,11 +1,13 @@
-import "reflect-metadata";
+import "reflect-metadata"; // needed by typescript-rtti
 import { Model, getModel, XML } from "xml-model";
 
-@Model()
+@Model({
+  fromXML(ctx) {
+    const instance = new MyClass();
+    if (ctx.properties.foo) instance.foo = ctx.properties.foo;
+    return instance;
+  },
+})
 export class MyClass {
   foo = "bar";
 }
-
-const x = new MyClass();
-
-console.log(XML.stringify(getModel(MyClass).toXML(x)));

@@ -9,7 +9,10 @@ export default defineConfig({
   build: {
     minify: false,
     lib: {
-      entry: { index: "./src/index.ts" },
+      entry: {
+        index: "./src/index.ts",
+        test: "./src/test.ts",
+      },
       formats: ["es"],
     },
   },
