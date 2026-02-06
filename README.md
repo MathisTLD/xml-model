@@ -7,28 +7,15 @@ To build something that relies in `xml-model` with vite
 
 ```typescript
 import { defineConfig } from "vite";
-import typescript from "@rollup/plugin-typescript";
-import rtti from "typescript-rtti/dist/transformer";
-
-import { Lib } from "marmotte/vite/plugins/lib";
+import XMLModelVitePlugin from "xml-model/vite";
 
 export default defineConfig({
   plugins: [
-    typescript({
-      transformers: {
-        before: [
-          {
-            type: "program",
-            factory: rtti,
-          },
-        ],
-      },
-      // optionally set declaration to `false` to let plugin dts handle the declarations
-      // declaration: false,
-    }),
+    // see options in JSDoc
+    XMLModelVitePlugin()
   ],
+  // ... rest of the config
 });
-
 ```
 
 ## Documentation
