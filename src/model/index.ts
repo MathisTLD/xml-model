@@ -40,7 +40,7 @@ function* ParentChain(constructor: Constructor<unknown>) {
   return;
 }
 
-function getParentModel(model: XMLModel<any>) {
+export function getParentModel(model: XMLModel<any>) {
   if (model.options.parent) return model.options.parent;
   for (const constructor of ParentChain(model.type)) {
     const model = findModel(constructor);
@@ -113,7 +113,6 @@ export class XMLModel<T = any> {
               const propertyToXMLContext = {
                 model,
                 object: context.object,
-
                 property: options,
                 value: context.object[options.name],
               };
