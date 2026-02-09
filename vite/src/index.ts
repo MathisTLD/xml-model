@@ -1,6 +1,6 @@
 import { type Plugin } from "vite";
 
-import typescript from "@rollup/plugin-typescript";
+import typescript, { type RollupTypescriptOptions } from "@rollup/plugin-typescript";
 import _rtti from "typescript-rtti/dist/transformer";
 
 // typing is wrong for some reason in reality rtti has type { default: Factory }
@@ -35,7 +35,12 @@ export function FixClassNames(): Plugin {
 }
 
 type RTTIPluginOptions = {
-  tsconfig?: string;
+  /**
+   * options for @rollup/plugin-typescript
+   *
+   * Plugin might not work if you override the `transformers` property as these options are assigned and not deep merged
+   */
+  typescript?: RollupTypescriptOptions;
   /** Files where the rtti transformer should be applied
    *
    * If not set, will include every files by default
@@ -47,7 +52,7 @@ type RTTIPluginOptions = {
   debug?: boolean;
 };
 export function TypescriptRTTI(options: RTTIPluginOptions = {}): Plugin {
-  const { tsconfig, include, exclude, debug = false } = options;
+  const { typescript: rollupPluginTypescriptOptions, include, exclude, debug = false } = options;
   const doTransform: (path: string) => boolean =
     !include && !exclude
       ? () => true
@@ -56,7 +61,6 @@ export function TypescriptRTTI(options: RTTIPluginOptions = {}): Plugin {
           return include ? include.test(path) : true;
         };
   return typescript({
-    tsconfig,
     transformers: {
       before: [
         {
@@ -79,6 +83,7 @@ export function TypescriptRTTI(options: RTTIPluginOptions = {}): Plugin {
     },
     // set declaration to `false` to let plugin dts handle the declarations
     declaration: false,
+    ...rollupPluginTypescriptOptions,
   });
 }
 
