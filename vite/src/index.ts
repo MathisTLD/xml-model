@@ -11,15 +11,16 @@ const rtti = "default" in _rtti ? (_rtti as unknown as { default: typeof _rtti }
  * so they need to be preserved
  * @returns
  */
+// FIXME: this would be better in a typescript transformer. This WILL break
 export function FixClassNames(): Plugin {
-  // FIXME: this would be better in a typescript transformer. This WILL break
   return {
     name: "fix-class-names",
     enforce: "post" as const,
     transform(code: string, id: string) {
       if (!id.endsWith(".ts") && !id.endsWith(".tsx")) return;
       // Regex to find: let Name = class Name2
-      const fixed = code.replace(/let\s+(\w+)\s*=\s*class\s+\w+/g, "let $1 = class $1");
+      // but not let Name = class extends BaseClass
+      const fixed = code.replace(/let\s+(\w+)\s*=\s*class\s+(?!extends)\w+/g, "let $1 = class $1");
       return { code: fixed, map: null };
     },
     config() {
