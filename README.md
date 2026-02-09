@@ -13,6 +13,7 @@ import XMLModelVitePlugin from "xml-model/vite";
 export default defineConfig({
   plugins: [
     // see options in JSDoc
+    // note that is tsconfig that includes your source files is not tsconfig.json you MUST use the tsconfig option
     XMLModelVitePlugin(),
   ],
   // ... rest of the config

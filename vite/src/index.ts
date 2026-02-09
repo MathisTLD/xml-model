@@ -35,6 +35,7 @@ export function FixClassNames(): Plugin {
 }
 
 type RTTIPluginOptions = {
+  tsconfig?: string;
   /** Files where the rtti transformer should be applied
    *
    * If not set, will include every files by default
@@ -46,7 +47,7 @@ type RTTIPluginOptions = {
   debug?: boolean;
 };
 export function TypescriptRTTI(options: RTTIPluginOptions = {}): Plugin {
-  const { include, exclude, debug = false } = options;
+  const { tsconfig, include, exclude, debug = false } = options;
   const doTransform: (path: string) => boolean =
     !include && !exclude
       ? () => true
@@ -55,6 +56,7 @@ export function TypescriptRTTI(options: RTTIPluginOptions = {}): Plugin {
           return include ? include.test(path) : true;
         };
   return typescript({
+    tsconfig,
     transformers: {
       before: [
         {
