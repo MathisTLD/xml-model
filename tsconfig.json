@@ -5,7 +5,6 @@
     "moduleResolution": "node",
     // might not even need these
     "types": ["node", "vite/client"],
-
     "paths": {
       "@/*": ["./src/*"]
     },

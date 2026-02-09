@@ -13,7 +13,11 @@ export default defineConfig({
     }),
     Lib({
       docs: false,
-      dts: { exclude: ["/**/*.test.ts"] },
+      dts: {
+        exclude: ["/**/*.test.ts"],
+        // FIXME: declaration map are not generated
+        // compilerOptions: { declaration: true, declarationMap: true },
+      },
     }),
     {
       name: "build-vite-plugin",

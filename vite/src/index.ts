@@ -12,6 +12,7 @@ const rtti = "default" in _rtti ? (_rtti as unknown as { default: typeof _rtti }
  * @returns
  */
 export function FixClassNames(): Plugin {
+  // FIXME: this would be better in a typescript transformer. This WILL break
   return {
     name: "fix-class-names",
     enforce: "post" as const,
@@ -24,6 +25,7 @@ export function FixClassNames(): Plugin {
     config() {
       return {
         esbuild: {
+          // if not using this ClassName is changed back to ClassName2 on build
           keepNames: true,
         },
       };

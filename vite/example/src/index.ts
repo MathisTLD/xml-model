@@ -1,5 +1,5 @@
 import "reflect-metadata"; // needed by typescript-rtti
-import { Model, getModel, XML } from "xml-model";
+import { Model } from "xml-model";
 
 @Model({
   fromXML(ctx) {
