@@ -21,7 +21,7 @@
     }
   },
   "scripts": {
-    "preversion": "npm test",
+    "preversion": "npm test -- --run",
     "version": "npm run build",
     "postversion": "git push && git push --tags",
     "build": "vite build",
