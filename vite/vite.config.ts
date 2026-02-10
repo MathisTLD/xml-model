@@ -24,9 +24,4 @@ export default defineConfig({
       },
     },
   ],
-  resolve: {
-    alias: {
-      "typescript-rtti/dist/transformer": "typescript-rtti/dist.esm/transformer",
-    },
-  },
 });

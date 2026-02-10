@@ -1,13 +1,7 @@
 import { type Plugin } from "vite";
 
 import typescript, { type RollupTypescriptOptions } from "@rollup/plugin-typescript";
-// import the typescript-rtti/dist/transformer version (not dist.esm) so that we can require this file from the root
-// vite config (cjs will be auto transpiled). But when we build this plugin for real we use typescript-rtti/dist.esm/transformer
-// thanks to an alias
-import _rtti from "typescript-rtti/dist/transformer";
-
-// typing is wrong for some reason in reality rtti has type { default: Factory }
-const rtti = "default" in _rtti ? (_rtti as unknown as { default: typeof _rtti }).default : _rtti;
+import rtti from "typescript-rtti/dist.esm/transformer";
 
 /**
  * When Building, class names are changed but the library relies on them
@@ -37,7 +31,7 @@ export function FixClassNames(): Plugin {
   };
 }
 
-type RTTIPluginOptions = {
+export type RTTIPluginOptions = {
   /**
    * options for @rollup/plugin-typescript
    *
@@ -90,6 +84,7 @@ export function TypescriptRTTI(options: RTTIPluginOptions = {}): Plugin {
   });
 }
 
+export type XMLModelVitePluginOptions = RTTIPluginOptions;
 export function XMLModelVitePlugin(options: RTTIPluginOptions = {}) {
   return [FixClassNames(), TypescriptRTTI(options)];
 }

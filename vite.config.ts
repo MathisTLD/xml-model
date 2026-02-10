@@ -1,14 +1,33 @@
 import { build, defineConfig } from "vite";
+import { resolve } from "path";
 
 import { Lib } from "marmotte/vite/plugins/lib";
 
-import { XMLModelVitePlugin } from "./vite/src";
-import { resolve } from "path";
+import type { XMLModelVitePluginOptions } from "./vite/src";
+import { existsSync } from "fs";
+
+const vitePluginRoot = resolve(import.meta.dirname, "vite");
+
+async function buildVitePlugin() {
+  console.log("building the vite plugin");
+  await build({
+    root: vitePluginRoot,
+  });
+}
+
+async function resolveVitePlugin(options: XMLModelVitePluginOptions = {}) {
+  const pluginEntry = resolve(vitePluginRoot, "dist", "index.js");
+  if (!existsSync(pluginEntry)) {
+    // build vite plugin if not already built
+    await buildVitePlugin();
+  }
+  return import(pluginEntry).then((m) => (m as typeof import("./vite/src")).default(options));
+}
 
 export default defineConfig({
   plugins: [
     // for tests
-    XMLModelVitePlugin({
+    resolveVitePlugin({
       include: /\.test\.ts$/,
     }),
     Lib({
@@ -24,10 +43,7 @@ export default defineConfig({
       // only when building
       apply: "build",
       async closeBundle() {
-        console.log("building the vite plugin");
-        await build({
-          root: resolve(import.meta.dirname, "vite"),
-        });
+        await buildVitePlugin();
       },
     },
   ],
