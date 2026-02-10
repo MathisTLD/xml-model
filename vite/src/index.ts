@@ -1,6 +1,9 @@
 import { type Plugin } from "vite";
 
 import typescript, { type RollupTypescriptOptions } from "@rollup/plugin-typescript";
+// import the typescript-rtti/dist/transformer version (not dist.esm) so that we can require this file from the root
+// vite config (cjs will be auto transpiled). But when we build this plugin for real we use typescript-rtti/dist.esm/transformer
+// thanks to an alias
 import _rtti from "typescript-rtti/dist/transformer";
 
 // typing is wrong for some reason in reality rtti has type { default: Factory }
