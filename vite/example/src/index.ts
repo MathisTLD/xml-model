@@ -1,4 +1,3 @@
-import "reflect-metadata"; // needed by typescript-rtti
 import { Model } from "xml-model";
 
 @Model({

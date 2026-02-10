@@ -25,7 +25,6 @@ export default defineConfig({
 ### Example
 
 ```typescript
-import "reflect-metadata";
 import { Model, getModel, XML } from "xml-model";
 
 @Model({
