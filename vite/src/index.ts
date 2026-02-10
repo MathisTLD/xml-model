@@ -9,7 +9,7 @@ import rtti from "typescript-rtti/dist.esm/transformer";
  * @returns
  */
 // FIXME: this would be better in a typescript transformer. This WILL break
-export function FixClassNames(): Plugin {
+export function FixClassNames() {
   return {
     name: "fix-class-names",
     enforce: "post" as const,
@@ -28,7 +28,7 @@ export function FixClassNames(): Plugin {
         },
       };
     },
-  };
+  } satisfies Plugin;
 }
 
 export type RTTIPluginOptions = {
@@ -48,7 +48,7 @@ export type RTTIPluginOptions = {
   /** Print debug logs */
   debug?: boolean;
 };
-export function TypescriptRTTI(options: RTTIPluginOptions = {}): Plugin {
+export function TypescriptRTTI(options: RTTIPluginOptions = {}) {
   const { typescript: rollupPluginTypescriptOptions, include, exclude, debug = false } = options;
   const doTransform: (path: string) => boolean =
     !include && !exclude
