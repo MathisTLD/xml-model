@@ -32,6 +32,7 @@ export default defineConfig({
     }),
     Lib({
       docs: false,
+      // TODO: bundle the types of typescript-rtti so we don't have to add it as a dependency
       dts: {
         exclude: ["/**/*.test.ts"],
         // FIXME: declaration map are not generated

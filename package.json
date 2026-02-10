@@ -34,6 +34,7 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "typescript-rtti": "0.9.6",
     "xml-js": "^1.6.11"
   },
   "devDependencies": {
@@ -46,7 +47,6 @@
     "oxlint": "^1.43.0",
     "reflect-metadata": "^0.1.14",
     "typescript": "*",
-    "typescript-rtti": "^0.9.6",
     "vite": "*",
     "vitest": "^4.0.18"
   },
