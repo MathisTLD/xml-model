@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 
-import { Lib } from "marmotte/vite/plugins/lib";
+import { Lib } from "marmotte/vite/lib";
 
 export default defineConfig({
   plugins: [

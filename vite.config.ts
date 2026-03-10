@@ -1,7 +1,7 @@
 import { build, defineConfig } from "vite";
 import { resolve } from "path";
 
-import { Lib } from "marmotte/vite/plugins/lib";
+import { Lib } from "marmotte/vite/lib";
 
 import type { XMLModelVitePluginOptions } from "./vite/src";
 import { existsSync } from "fs";
@@ -33,11 +33,6 @@ export default defineConfig({
     Lib({
       docs: false,
       // TODO: bundle the types of typescript-rtti so we don't have to add it as a dependency
-      dts: {
-        exclude: ["/**/*.test.ts"],
-        // FIXME: declaration map are not generated
-        // compilerOptions: { declaration: true, declarationMap: true },
-      },
     }),
     {
       name: "build-vite-plugin",
