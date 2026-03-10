@@ -21,7 +21,7 @@
     }
   },
   "scripts": {
-    "preversion": "npm test -- --run",
+    "preversion": "vitest run",
     "version": "npm run build",
     "postversion": "git push && git push --tags",
     "build": "vite build",
@@ -43,8 +43,8 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
     "marmotte": "^0.4.2",
-    "oxfmt": "^0.28.0",
-    "oxlint": "^1.43.0",
+    "oxfmt": "^0.36.0",
+    "oxlint": "^1.51.0",
     "reflect-metadata": "^0.1.14",
     "typescript": "*",
     "vite": "*",
