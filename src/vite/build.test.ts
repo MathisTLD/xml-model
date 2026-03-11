@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { beforeAll, expect, test } from "vitest";
 import { withTmpDir } from "marmotte/vitest/tmpdir";
 
 import { describe } from "node:test";
@@ -6,7 +6,7 @@ import { resolve } from "path";
 
 import { exec as _exec } from "child_process";
 import { promisify } from "util";
-import { writeFileSync, rmSync, statSync, readFileSync } from "fs";
+import { writeFileSync, statSync, readFileSync } from "fs";
 import { mkdir } from "fs/promises";
 
 const exec = promisify(_exec);
