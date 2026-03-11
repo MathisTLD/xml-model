@@ -4,9 +4,12 @@ import typescript, { type RollupTypescriptOptions } from "@rollup/plugin-typescr
 import rtti from "typescript-rtti/dist.esm/transformer";
 
 /**
+ * Vite plugin that preserves class names at build time.
+ *
  * When Building, class names are changed but the library relies on them
- * so they need to be preserved
- * @returns
+ * so they need to be preserved.
+ *
+ * @returns A Vite plugin that rewrites mangled class name expressions and enables `keepNames`.
  */
 // FIXME: this would be better in a typescript transformer. This WILL break
 export function FixClassNames() {
@@ -31,23 +34,36 @@ export function FixClassNames() {
   } satisfies Plugin;
 }
 
+/** Options for the `TypescriptRTTI` and `XMLModelVitePlugin` plugins. */
 export type RTTIPluginOptions = {
   /**
-   * options for @rollup/plugin-typescript
+   * Options forwarded to `@rollup/plugin-typescript`.
    *
-   * Plugin might not work if you override the `transformers` property as these options are assigned and not deep merged
+   * The plugin may not work correctly if you override the `transformers` property,
+   * as these options are shallow-merged (not deep-merged).
    */
   typescript?: RollupTypescriptOptions;
-  /** Files where the rtti transformer should be applied
+  /**
+   * Restrict RTTI transformation to files matching this pattern.
    *
-   * If not set, will include every files by default
+   * When omitted, all files are transformed.
    */
   include?: RegExp;
-  /** Files where the rtti transformer should not be applied */
+  /** Exclude files matching this pattern from RTTI transformation. */
   exclude?: RegExp;
-  /** Print debug logs */
+  /** Print debug logs from the RTTI transformer. */
   debug?: boolean;
 };
+
+/**
+ * Vite plugin that applies the `typescript-rtti` TypeScript transformer.
+ *
+ * This transformer emits the runtime type metadata that xml-model uses to
+ * introspect property types without manual annotations.
+ *
+ * @param options - Plugin options controlling which files are transformed.
+ * @returns A configured `@rollup/plugin-typescript` instance with the RTTI transformer injected.
+ */
 export function TypescriptRTTI(options: RTTIPluginOptions = {}) {
   const { typescript: rollupPluginTypescriptOptions, include, exclude, debug = false } = options;
   const doTransform: (path: string) => boolean =
@@ -84,8 +100,28 @@ export function TypescriptRTTI(options: RTTIPluginOptions = {}) {
   });
 }
 
+/** Alias for `RTTIPluginOptions`. */
 export type XMLModelVitePluginOptions = RTTIPluginOptions;
+
+/**
+ * Main xml-model Vite plugin.
+ *
+ * Combines `FixClassNames`, `TypescriptRTTI`, and an internal resolver that
+ * rewrites the `xml-model/dist/*` import paths emitted by typescript-rtti back
+ * to the canonical `xml-model/*` paths exported by the package.
+ *
+ * @param options - Options forwarded to `TypescriptRTTI`.
+ * @returns An array of Vite plugins.
+ */
 export function XMLModelVitePlugin(options: RTTIPluginOptions = {}) {
-  return [FixClassNames(), TypescriptRTTI(options)];
+  const distResolver: Plugin = {
+    name: "xml-model-resolve-dist",
+    enforce: "pre",
+    async resolveId(id) {
+      const match = id.match(/^xml-model\/dist\/(.*)/);
+      if (match) return this.resolve(`xml-model/${match[1]}`);
+    },
+  };
+  return [FixClassNames(), TypescriptRTTI(options), distResolver];
 }
 export default XMLModelVitePlugin;

@@ -25,6 +25,7 @@ import { defaults } from "../defaults";
 import { findModel, registrerModel } from "./registry";
 import registerBuiltIns from "./built-ins";
 
+/** Yields every constructor in the prototype chain of `constructor`, from immediate parent upward. */
 function* ParentChain(constructor: Constructor<unknown>) {
   let parent = Object.getPrototypeOf(constructor);
   if (parent === constructor) {
@@ -41,6 +42,10 @@ function* ParentChain(constructor: Constructor<unknown>) {
   return;
 }
 
+/**
+ * Returns the parent `XMLModel` for the given model, walking the prototype chain
+ * if no explicit parent was set in options.
+ */
 export function getParentModel(model: XMLModel<any>) {
   if (model.options.parent) return model.options.parent;
   for (const constructor of ParentChain(model.type)) {
@@ -52,6 +57,12 @@ export function getParentModel(model: XMLModel<any>) {
   return null;
 }
 
+/**
+ * Encapsulates the XML ↔ TypeScript conversion logic for a specific class.
+ *
+ * Create instances via `createModel` or the `@Model()` decorator rather than
+ * calling this constructor directly.
+ */
 export class XMLModel<T = any> {
   options: XMLModelOptions<T>;
   constructor(
@@ -144,6 +155,13 @@ export class XMLModel<T = any> {
           property.name as XMLModelProperty<T>,
         );
         if (!options.ignored) {
+          const type = options.reflected?.type;
+          if (!options.model && type?.is("class") && type.class === Object) {
+            console.warn(
+              `[xml-model] Property '${String(property.name)}' on '${this.type.name}' has type Object at runtime. ` +
+                `If its declared type is a class, make sure it is imported as a value and not with 'import type'.`,
+            );
+          }
           properties.options.set(property.name as XMLModelProperty<T>, options);
         }
       });
@@ -180,6 +198,15 @@ export class XMLModel<T = any> {
     if (options.fromXML) this.options.fromXML.middlewares.push(options.fromXML);
     if (options.toXML) this.options.toXML.middlewares.push(options.toXML);
   }
+
+  /**
+   * Converts an XML document (string or parsed `XMLRoot`) into an instance of `T`.
+   *
+   * @param xml - Raw XML string or a pre-parsed `XMLRoot` object.
+   * @returns The converted instance produced by the model's `fromXML` middleware chain.
+   * @throws {FromXMLConversionError} When model-level conversion fails.
+   * @throws {PropertyFromXMLConversionError} When a property-level conversion fails.
+   */
   fromXML(xml: XMLRoot | string) {
     const _xml = typeof xml === "string" ? XML.parse(xml) : xml;
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -197,6 +224,16 @@ export class XMLModel<T = any> {
     };
     return resolve(MiddlewareChain(this.options.fromXML), context);
   }
+
+  /**
+   * Converts an instance of `T` into an XML document.
+   *
+   * @param instance - An instance of the class this model was created for.
+   * @returns An `XMLRoot` representing the serialised object.
+   * @throws {TypeError} When `instance` is not an instance of the expected type.
+   * @throws {ToXMLConversionError} When model-level conversion fails.
+   * @throws {PropertyToXMLConversionError} When a property-level conversion fails.
+   */
   toXML(instance: unknown) {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const model = this;
@@ -221,9 +258,16 @@ export class XMLModel<T = any> {
       throw new TypeError(`provided object is not an instance of ${this.type.name}`);
     }
   }
+
+  /** The typescript-rtti reflection metadata for the model's class. */
   get reflectedClass() {
     return reflect(this.type);
   }
+
+  /**
+   * Returns a merged map of all property options for this model, including inherited properties.
+   * Own properties override parent properties with the same name.
+   */
   resolveAllProperties() {
     type K = string;
     type V = XMLModelPropertyOptions<any> & { model: any };
@@ -248,6 +292,14 @@ export class XMLModel<T = any> {
   }
 }
 
+/**
+ * Creates and registers a new `XMLModel` for the given constructor.
+ *
+ * @param type - The class constructor to create a model for.
+ * @param options - Model creation options including `fromXML` and `toXML` middlewares.
+ * @returns The newly created `XMLModel`.
+ * @throws {TypeError} When a model for this type has already been registered.
+ */
 export function createModel<T>(
   type: Constructor<T>,
   options: CreateXMLModelOptions<T>,
@@ -260,7 +312,14 @@ export function createModel<T>(
   return model;
 }
 
-// Model decorator
+/**
+ * Decorator factory that registers an `XMLModel` for the decorated class.
+ *
+ * Provide at minimum a `fromXML` function unless the class inherits from a
+ * parent class that already has a model — the default `fromXML` throws.
+ *
+ * @param options - Optional model creation options.
+ */
 function ModelDecoratorFactory<T>(options?: CreateXMLModelOptions<T>) {
   return function (constructor: Constructor<T>): void {
     if (!findModel(constructor)) createModel<T>(constructor, options || {});
