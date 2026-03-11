@@ -69,7 +69,7 @@ export class XMLModel<T = any> {
     readonly type: Constructor<T>,
     options: CreateXMLModelOptions<T>,
   ) {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    // oxlint-disable-next-line no-this-alias
     const model = this;
     let parent: XMLModel<any> | null | undefined = undefined;
     const getParent = () => {
@@ -209,7 +209,7 @@ export class XMLModel<T = any> {
    */
   fromXML(xml: XMLRoot | string) {
     const _xml = typeof xml === "string" ? XML.parse(xml) : xml;
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    // oxlint-disable-next-line no-this-alias
     const model = this;
     const context = {
       xml: _xml,
@@ -235,7 +235,7 @@ export class XMLModel<T = any> {
    * @throws {PropertyToXMLConversionError} When a property-level conversion fails.
    */
   toXML(instance: unknown) {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    // oxlint-disable-next-line no-this-alias
     const model = this;
     if (
       instance instanceof this.type ||
