@@ -26,6 +26,7 @@
     "postversion": "git push && git push --tags",
     "build": "vite build",
     "dev": "vite build --watch",
+    "docs": "vite dev",
     "test": "vitest",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",

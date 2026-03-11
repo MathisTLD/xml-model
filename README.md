@@ -1,5 +1,7 @@
 # XML Model
 
+**[Documentation](https://mathistld.github.io/xml-model/)**
+
 ## Usage
 
 Needs [typescript-rtti](https://github.com/typescript-rtti/typescript-rtti) to retrieve type at runtime.
