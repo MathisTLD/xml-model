@@ -78,6 +78,10 @@ function findPropertyConversionOptions<T>(
   }
 }
 
+/**
+ * Returns the resolved conversion options for a property, using stored `@Prop()` options
+ * if available, or falling back to defaults derived from the property's type information.
+ */
 export function getPropertyConversionOptions<T>(
   constructor: Constructor<T>,
   property: XMLModelProperty<T>,
@@ -86,6 +90,14 @@ export function getPropertyConversionOptions<T>(
   return options ?? resolvePropertyConversionOptions({}, constructor, property);
 }
 
+/**
+ * Decorator factory that customises how a class property is converted to and from XML.
+ *
+ * Applied to properties of classes decorated with `@Model()`. All options are optional —
+ * omitting `@Prop()` entirely uses the defaults inferred from the property's TypeScript type.
+ *
+ * @param options - Property conversion options.
+ */
 function PropDecoratorFactory<T = any>(options?: CreateXMLModelPropertyOptions<T>) {
   return function (prototype: any, property: XMLModelProperty<T>) {
     const _options = resolvePropertyConversionOptions(

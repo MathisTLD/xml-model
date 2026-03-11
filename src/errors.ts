@@ -5,6 +5,10 @@ import {
   toXMLContext,
 } from "./model/types";
 
+/**
+ * Thrown when model-level XML → object conversion fails.
+ * Wraps the original error along with the conversion context.
+ */
 export class FromXMLConversionError<T> extends Error {
   name = "FromXMLConversionError";
   constructor(
@@ -16,6 +20,10 @@ export class FromXMLConversionError<T> extends Error {
   }
 }
 
+/**
+ * Thrown when a single property's XML → value conversion fails.
+ * Extends `FromXMLConversionError` with additional property context.
+ */
 export class PropertyFromXMLConversionError<T> extends FromXMLConversionError<T> {
   name = "PropertyFromXMLConversionError";
   constructor(
@@ -30,6 +38,10 @@ export class PropertyFromXMLConversionError<T> extends FromXMLConversionError<T>
   }
 }
 
+/**
+ * Thrown when model-level object → XML conversion fails.
+ * Wraps the original cause along with the conversion context.
+ */
 export class ToXMLConversionError<T> extends Error {
   name = "ToXMLConversionError";
   constructor(
@@ -41,6 +53,10 @@ export class ToXMLConversionError<T> extends Error {
   }
 }
 
+/**
+ * Thrown when a single property's value → XML conversion fails.
+ * Extends `ToXMLConversionError` with additional property context.
+ */
 export class PropertyToXMLConversionError<T> extends ToXMLConversionError<T> {
   name = "PropertyToXMLConversionError";
   constructor(

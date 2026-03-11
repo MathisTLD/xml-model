@@ -29,21 +29,52 @@ interface Defaults {
   propertyToXML<T>(context: PropertyToXMLContext<T>): XMLRoot;
 }
 
+/**
+ * Global defaults used by all models and properties when no override is provided.
+ *
+ * You can mutate individual entries to change library-wide behaviour — for example,
+ * replace `defaults.fromXML` to provide a base deserialization strategy instead of
+ * having to specify `fromXML` on every `@Model()`.
+ *
+ * Key behaviours:
+ * - `fromXML` — throws by default; every root model **must** provide its own implementation.
+ * - `tagnameFromModel` / `tagnameFromProperty` — convert class/property names to kebab-case.
+ * - `propertyFromXML` — handles class, array, and union-of-literal property types via runtime reflection.
+ * - `propertyToXML` — serialises class, array, and union-of-literal values; respects `inline`.
+ */
 export const defaults: Defaults = {
+  /**
+   * Default model-level `fromXML` handler.
+   * Always throws — models must supply their own `fromXML` or inherit one from a parent.
+   * @throws {TypeError}
+   */
   fromXML() {
     throw new TypeError(
       "you should define 'defaults.fromXML' yourself or provide a 'fromXML' function to @Model() decorator's options",
     );
   },
+  /**
+   * Collects the XML elements that are the source data for a property.
+   * Assumes `xml.elements[0]` is the wrapper element that contains all property tags.
+   */
   propertyResolveSourceElements(context) {
     // We assume context.xml.elements is a single tag containing all the props
     // FIXME: is it safe ?
     const innerElements: XMLElement[] = context.xml.elements[0]?.elements || [];
     return innerElements.filter((el) => context.property.isSourceElement(el, context));
   },
+  /**
+   * Returns `true` when the element's tag name matches the property's tagname.
+   */
   propertySourceElementsFilter(element, context) {
     return context.property.tagname === element.name;
   },
+  /**
+   * Converts resolved XML elements into a typed property value.
+   * Handles class types, arrays of class types, and union-of-literal types.
+   * Returns `undefined` for optional properties with no matching elements,
+   * and also for unrecognised types.
+   */
   propertyFromXML(context) {
     // TODO: handle inline
     const prop = context.property;
@@ -97,7 +128,11 @@ export const defaults: Defaults = {
     // TODO: should warn ???
     return undefined;
   },
-  /* Object -> XML */
+  /**
+   * Default model-level `toXML` handler.
+   * Collects serialised property fragments and wraps them in a root element
+   * named after the model's tagname.
+   */
   toXML({ properties, model }) {
     const elements: XMLElement[] = [];
 
@@ -123,12 +158,25 @@ export const defaults: Defaults = {
       ],
     };
   },
+  /**
+   * Derives the XML tag name for a model from its class name, converted to kebab-case.
+   * e.g. `MyClass` → `my-class`.
+   */
   tagnameFromModel(model) {
     return kebabCase(model.type.name);
   },
+  /**
+   * Derives the XML tag name for a property from its name, converted to kebab-case.
+   * e.g. `myProp` → `my-prop`.
+   */
   tagnameFromProperty(property) {
     return kebabCase(String(property.name));
   },
+  /**
+   * Converts a typed property value to an `XMLRoot` fragment.
+   * Handles class types, arrays of class types, and union-of-literal types.
+   * When the property has `inline: true`, array items are flattened into the parent element.
+   */
   propertyToXML(context) {
     const property = context.property;
 

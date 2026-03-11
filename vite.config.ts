@@ -26,7 +26,8 @@ export default defineConfig((env) => {
             })
         : false,
       Lib({
-        docs: false,
+        // FIXME: typedocs fails at build
+        typedoc: false,
         // TODO: bundle the types of typescript-rtti so we don't have to add it as a dependency
       }),
       // TODO: we could build both with a single vite config once we fully bundle typescript-rtti
