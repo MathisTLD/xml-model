@@ -1,6 +1,5 @@
 *
 !/README.md
 !/dist/**
-!/vite/dist/**
 !/package.json
 **/*.map

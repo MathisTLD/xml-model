@@ -11,13 +11,13 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./vite": {
+      "types": "./dist/vite/index.d.ts",
+      "import": "./dist/vite/index.js"
+    },
     "./*": {
       "types": "./dist/*.d.ts",
       "import": "./dist/*.js"
-    },
-    "./vite": {
-      "types": "./vite/dist/index.d.ts",
-      "import": "./vite/dist/index.js"
     }
   },
   "scripts": {

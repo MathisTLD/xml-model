@@ -1,46 +1,75 @@
 import { build, defineConfig } from "vite";
-import { resolve } from "path";
+import { join, resolve } from "path";
 
 import { Lib } from "marmotte/vite/lib";
 
-import type { XMLModelVitePluginOptions } from "./vite/src";
-import { existsSync } from "fs";
-
-const vitePluginRoot = resolve(import.meta.dirname, "vite");
-
-async function buildVitePlugin() {
-  console.log("building the vite plugin");
-  await build({
-    root: vitePluginRoot,
-  });
-}
-
-async function resolveVitePlugin(options: XMLModelVitePluginOptions = {}) {
-  const pluginEntry = resolve(vitePluginRoot, "dist", "index.js");
-  if (!existsSync(pluginEntry)) {
-    // build vite plugin if not already built
-    await buildVitePlugin();
-  }
-  return import(pluginEntry).then((m) => (m as typeof import("./vite/src")).default(options));
-}
-
-export default defineConfig({
-  plugins: [
-    // for tests
-    resolveVitePlugin({
-      include: /\.test\.ts$/,
-    }),
-    Lib({
-      docs: false,
-      // TODO: bundle the types of typescript-rtti so we don't have to add it as a dependency
-    }),
-    {
-      name: "build-vite-plugin",
-      // only when building
-      apply: "build",
-      async closeBundle() {
-        await buildVitePlugin();
+export default defineConfig((env) => {
+  return {
+    plugins: [
+      // for tests
+      env.command === "serve" && process.env.VITEST
+        ? // only use plugin in tests
+          import("xml-model/vite")
+            .then((m) =>
+              m.default({
+                include: /\.test\.ts$/,
+                exclude: /src\/vite\//,
+              }),
+            )
+            .catch((error) => {
+              throw new Error(
+                "Failed to load xml-model/vite, you should run `npm run build` first",
+                {
+                  cause: error,
+                },
+              );
+            })
+        : false,
+      Lib({
+        docs: false,
+        // TODO: bundle the types of typescript-rtti so we don't have to add it as a dependency
+      }),
+      // TODO: we could build both with a single vite config once we fully bundle typescript-rtti
+      {
+        name: "build-vite-plugin",
+        // only when building
+        apply: "build",
+        async generateBundle() {
+          const outputs = await build({
+            root: import.meta.dirname,
+            configFile: resolve(import.meta.dirname, "vite.config.vite-plugin.ts"),
+            build: {
+              write: false,
+            },
+          });
+          if (!Array.isArray(outputs)) throw new Error("expected array of outputs");
+          if (outputs.length !== 1) throw new Error("expected a single output");
+          const { output } = outputs[0];
+          for (const o of output) {
+            console.log(o.fileName);
+            const fileName = join("vite", o.fileName);
+            if (o.type === "asset") {
+              this.emitFile({
+                type: "asset",
+                fileName,
+                source: o.source,
+              });
+            } else {
+              this.emitFile({
+                type: "prebuilt-chunk",
+                fileName,
+                code: o.code,
+                map: o.map ?? undefined,
+                sourcemapFileName: o.sourcemapFileName ?? undefined,
+                exports: o.exports,
+              });
+            }
+          }
+        },
       },
+    ],
+    build: {
+      // emptyOutDir: false,
     },
-  ],
+  };
 });

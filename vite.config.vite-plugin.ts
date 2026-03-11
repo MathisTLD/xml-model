@@ -44,4 +44,11 @@ ${code.slice(cursor)}`;
       },
     },
   ],
+  build: {
+    lib: {
+      entry: {
+        index: "./src/vite/index.ts",
+      },
+    },
+  },
 });
