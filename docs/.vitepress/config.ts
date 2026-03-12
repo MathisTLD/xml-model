@@ -1,5 +1,6 @@
 import { defineConfig } from "vitepress";
 import Sidebar from "marmotte/vitepress/sidebar";
+import llms from "vitepress-plugin-llms";
 
 export default async () => {
   return defineConfig({
@@ -14,6 +15,6 @@ export default async () => {
       ],
       socialLinks: [{ icon: "github", link: "https://github.com/MathisTLD/xml-model" }],
     },
-    vite: { plugins: [Sidebar()] },
+    vite: { plugins: [Sidebar(), llms()] },
   });
 };
