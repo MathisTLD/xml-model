@@ -1,170 +1,72 @@
-import { describe, test, expect, assert } from "vitest";
+import { describe, it, expect } from "vitest";
+import { z } from "zod";
+import { xmlModel } from "./model";
+import { xml } from "./schema-meta";
 
-import { Model, Prop, getModel } from "./model";
-import XML from "./xml";
-import { reflect, ReflectedClass } from "typescript-rtti";
-import { UnknownRecord, XMLRoot } from "./types";
+const BookSchema = xml.model(
+  z.object({
+    title: xml.prop(z.string()),
+    year: xml.prop(z.number()),
+  }),
+  { tagname: "book" },
+);
 
-@Model({
-  fromXML({ model, properties }) {
-    return new model.type(properties);
-  },
-})
-class Book {
-  name: string;
-  nbPages: number;
-  constructor(options: { name: string; nbPages: number }) {
-    this.name = options.name;
-    this.nbPages = options.nbPages;
+class Book extends xmlModel(BookSchema) {
+  getTitle() {
+    return `Title: ${this.title}`;
   }
 }
 
-@Model<Library>({
-  fromXML({ model, properties }) {
-    return new model.type(properties.name, ...(properties.books as Book[]));
-  },
-})
-class Library {
-  name: string;
-  books: Book[] = [];
-  constructor(name: string, ...books: Book[]) {
-    this.name = name;
-    this.books.push(...books);
-  }
-}
-
-function normalizeXML(xml: string | XMLRoot) {
-  const root = typeof xml === "string" ? XML.parse(xml) : xml;
-  return XML.stringify(root, { spaces: 2 });
-}
-
-function expectXMLEqual(a: string | XMLRoot, b: string | XMLRoot) {
-  expect(normalizeXML(a)).toEqual(normalizeXML(b));
-}
-
-describe("Library Example", () => {
-  const library = new Library("test");
-  for (let i = 1; i <= 4; i++) {
-    const book = new Book({ name: `Book #${i}`, nbPages: Math.pow(10, i) });
-    library.books.push(book);
-  }
-  const libraryXMLString = `<library>
-    <name>${library.name}</name>
-    <books>
-      ${library.books
-        .map(
-          (book) =>
-            `     <book>
-        <name>${book.name}</name>
-        <nb-pages>${book.nbPages}</nb-pages>
-      </book>`,
-        )
-        .join("")}
-    </books>
-</library>`;
-
-  test("Object -> XML", () => {
-    const xml = getModel(Library).toXML(library);
-    expectXMLEqual(xml, libraryXMLString);
-  });
-  test("XML -> Object", () => {
-    const parsedLibrary = getModel(Library).fromXML(libraryXMLString);
-    expect(parsedLibrary instanceof Library).toBe(true);
-    expect(parsedLibrary).toEqual(library);
-  });
-});
-
-@Model({
-  fromXML({ model, properties }) {
-    return new model.type(properties);
-  },
-})
-class A {
-  propA = "";
-  propB = true;
-  @Prop({ tagname: "b", inline: true })
-  propC: B[] = [];
-  @Prop({ tagname: "propd" })
-  propD: 0 | 1 = 0;
-  constructor(record?: UnknownRecord) {
-    if (record)
-      Object.entries(record).forEach(([key, val]) => {
-        (this[key as keyof A] as any) = val as any;
-      });
-  }
-  @Prop({ tagname: "array-e", inline: true })
-  arrayE: number[] = [];
-}
-
-@Model({
-  fromXML({ model, properties }) {
-    return new model.type(properties);
-  },
-})
-class B {
-  propA = 0;
-  constructor(record?: UnknownRecord) {
-    if (record)
-      Object.entries(record).forEach(([key, val]) => {
-        (this[key as keyof B] as any) = val as any;
-      });
-  }
-}
-
-describe("Edgy Cases", () => {
-  const instance = new A();
-  for (let i = 0; i < 8; i++) {
-    const b = new B();
-    b.propA = i;
-    instance.propC.push(b);
-    instance.arrayE.push(i * 100);
-  }
-
-  const instanceXMLString = XML.stringify(
-    XML.parse(`<a>
-  <prop-a>${instance.propA}</prop-a>
-  <prop-b>${instance.propB}</prop-b>
-  ${instance.propC.map((b) => `<b><prop-a>${b.propA}</prop-a></b>`).join("")}
-  <propd>${instance.propD}</propd>
-  ${instance.arrayE.map((e) => `<array-e>${e}</array-e>`).join("\n")}
-</a>`),
-  );
-
-  test("should give right type infos", () => {
-    const reflectedA = reflect(A) as unknown as ReflectedClass;
-    assert(reflectedA === <ReflectedClass>(<unknown>reflect(A)));
-    expect(reflectedA.getProperty("propA").type.isClass(String)).toBe(true);
-    expect(reflectedA.getProperty("propB").type.isClass(Boolean)).toBe(true);
-    const ModelAPropCType = reflectedA.getProperty("propC").type;
-    expect(ModelAPropCType.is("array") && ModelAPropCType.elementType.isClass(B)).toBe(true);
-    const ModelAPropDType = reflectedA.getProperty("propD").type;
-    expect(ModelAPropDType.is("union")).toBe(true);
+describe("xmlModel", () => {
+  it("creates class instances with instanceof", () => {
+    const book = Book.fromXML("<book><title>Dune</title><year>1965</year></book>");
+    expect(book instanceof Book).toBe(true);
   });
 
-  test("XML -> Object", () => {
-    const parsed = getModel(A).fromXML(instanceXMLString);
-    expect(parsed instanceof A).toBe(true);
-    expect(parsed).to.deep.equal(instance);
+  it("exposes schema properties on instance", () => {
+    const book = Book.fromXML("<book><title>Dune</title><year>1965</year></book>");
+    expect(book.title).toBe("Dune");
+    expect(book.year).toBe(1965);
   });
-  test("Object -> XML", () => {
-    const xml = getModel(A).toXML(instance);
-    expect(XML.stringify(xml)).toEqual(instanceXMLString);
+
+  it("allows class methods on parsed instances", () => {
+    const book = Book.fromXML("<book><title>Dune</title><year>1965</year></book>");
+    expect(book.getTitle()).toBe("Title: Dune");
   });
-});
 
-@Model()
-class C extends B {
-  propB = 3;
-}
-
-describe("Inheritance", () => {
-  const cInstance = new C();
-  const cInstanceXMLString = `<c><prop-a>${cInstance.propA}</prop-a><prop-b>${cInstance.propB}</prop-b></c>`;
-
-  test("XML -> Object", () => {
-    expect(getModel(C).fromXML(cInstanceXMLString)).to.deep.equal(cInstance);
+  it("static toXML works", () => {
+    const book = Book.fromXML("<book><title>Dune</title><year>1965</year></book>");
+    const root = Book.toXML(book);
+    expect(root.elements[0].name).toBe("book");
   });
-  test("Object -> XML", () => {
-    expect(XML.stringify(getModel(C).toXML(cInstance))).to.equal(cInstanceXMLString);
+
+  it("static toXMLString works", () => {
+    const book = Book.fromXML("<book><title>Dune</title><year>1965</year></book>");
+    const xmlStr = Book.toXMLString(book);
+    expect(xmlStr).toContain("<book>");
+    expect(xmlStr).toContain("<title>Dune</title>");
+  });
+
+  it("schema property is accessible", () => {
+    expect(Book.schema).toBe(BookSchema);
+  });
+
+  it("constructor accepts plain data objects", () => {
+    const book = new Book({ title: "Foundation", year: 1951 });
+    expect(book instanceof Book).toBe(true);
+    expect(book.title).toBe("Foundation");
+    expect(book.year).toBe(1951);
+  });
+
+  it("subclass fromXML returns subclass instances", () => {
+    class SpecialBook extends Book {
+      isSpecial() {
+        return true;
+      }
+    }
+    const book = SpecialBook.fromXML("<book><title>Dune</title><year>1965</year></book>");
+    expect(book instanceof SpecialBook).toBe(true);
+    expect(book instanceof Book).toBe(true);
+    expect((book as any).isSpecial()).toBe(true);
   });
 });

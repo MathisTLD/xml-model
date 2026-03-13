@@ -1,9 +1,8 @@
-export type { XMLElement, XMLRoot, Constructor } from "./types";
-export { defaults } from "./defaults";
-export { getModel, createModel, Model, Prop } from "./model";
-export * from "./errors";
-
-export * from "typescript-rtti";
-
-import XML from "./xml";
-export { XML };
+export { xmlCodec, FIELD_ORDER, ROOT_ATTRS } from "./codec";
+export { xmlModel } from "./model";
+export { xml } from "./schema-meta";
+export type { XMLCodec } from "./codec";
+export type { XMLPropMeta, XMLAttrMeta, XMLRootMeta } from "./schema-meta";
+export type { XMLElement, XMLRoot } from "./types";
+export { XMLValidationError } from "./errors";
+export { z } from "zod";

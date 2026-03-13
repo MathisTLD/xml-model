@@ -1,11 +1,3 @@
-export type { Constructor } from "typescript-rtti";
-
-/** A record with unknown values, keyed by string, number, or symbol. */
-export type UnknownRecord = Record<string | number | symbol, unknown>;
-
-/** Any object type. Used instead of `UnknownRecord` because it is compatible with class instances. */
-export type UnknownObject = object; // Record<string | number | symbol, unknown>; // don't works with class' instances
-
 /** Key-value map of XML attributes. Values may be strings, numbers, or absent. */
 export interface XMLAttributes {
   [key: string]: string | number | undefined;
