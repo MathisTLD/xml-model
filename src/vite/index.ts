@@ -3,36 +3,7 @@ import { type Plugin } from "vite";
 import typescript, { type RollupTypescriptOptions } from "@rollup/plugin-typescript";
 import rtti from "typescript-rtti/dist.esm/transformer";
 
-/**
- * Vite plugin that preserves class names at build time.
- *
- * When Building, class names are changed but the library relies on them
- * so they need to be preserved.
- *
- * @returns A Vite plugin that rewrites mangled class name expressions and enables `keepNames`.
- */
-// FIXME: this would be better in a typescript transformer. This WILL break
-export function FixClassNames() {
-  return {
-    name: "fix-class-names",
-    enforce: "post" as const,
-    transform(code: string, id: string) {
-      if (!id.endsWith(".ts") && !id.endsWith(".tsx")) return;
-      // Regex to find: let Name = class Name2
-      // but not let Name = class extends BaseClass
-      const fixed = code.replace(/let\s+(\w+)\s*=\s*class\s+(?!extends)\w+/g, "let $1 = class $1");
-      return { code: fixed, map: null };
-    },
-    config() {
-      return {
-        esbuild: {
-          // if not using this ClassName is changed back to ClassName2 on build
-          keepNames: true,
-        },
-      };
-    },
-  } satisfies Plugin;
-}
+export { FixClassNames } from "./fix-class-names";
 
 /** Options for the `TypescriptRTTI` and `XMLModelVitePlugin` plugins. */
 export type RTTIPluginOptions = {
