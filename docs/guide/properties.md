@@ -26,7 +26,7 @@ z.object({
 
 `xml.attr(schema, { name })` marks a field as an XML attribute on the root element.
 
-<<< @/../src/examples.ts#vehicle
+<<< @/../src/xml/examples.ts#vehicle
 
 ```xml
 <vehicle vin="V001"><make>Toyota</make><year>2020</year></vehicle>
@@ -38,9 +38,9 @@ z.object({
 
 Pass an xmlModel class directly to `xml.prop()` to embed it as a child element. The codec parses it into a class instance automatically.
 
-<<< @/../src/examples.ts#engine
+<<< @/../src/xml/examples.ts#engine
 
-<<< @/../src/examples.ts#car
+<<< @/../src/xml/examples.ts#car
 
 ```ts
 const car = Car.fromXML(`
@@ -64,7 +64,7 @@ cars: xml.prop(z.array(Car.schema()), { inline: true }),
 
 Wrap the schema in `z.optional()` to make a field optional. When the element is absent from the XML the field is `undefined`; `toXMLString` omits it entirely.
 
-<<< @/../src/examples.ts#motorcycle
+<<< @/../src/xml/examples.ts#motorcycle
 
 ```ts
 const moto = Motorcycle.fromXML(
@@ -84,7 +84,7 @@ motoWithSidecar.sidecar; // true
 
 Each item is a **direct child** of the root element. Items of different types can be interleaved freely in document order.
 
-<<< @/../src/examples.ts#fleet
+<<< @/../src/xml/examples.ts#fleet
 
 ```xml
 <fleet name="Acme Fleet">
@@ -100,7 +100,7 @@ Each `<car>` and `<motorcycle>` is a direct child of `<fleet>`. The codec matche
 
 Items are nested inside a **single wrapper element** whose tag name comes from the field name (kebab-cased).
 
-<<< @/../src/examples.ts#showroom
+<<< @/../src/xml/examples.ts#showroom
 
 ```xml
 <showroom name="Acme Dealers">

@@ -35,9 +35,9 @@ When `tagname` is omitted the class name is converted to kebab-case automaticall
 
 `.extend()` creates a **true subclass** — child instances are `instanceof` the parent and inherit all its methods.
 
-<<< @/../src/examples.ts#vehicle
+<<< @/../src/xml/examples.ts#vehicle
 
-<<< @/../src/examples.ts#car
+<<< @/../src/xml/examples.ts#car
 
 ```ts
 const car = Car.fromXML(`
@@ -57,7 +57,7 @@ car instanceof Vehicle; // true
 
 `.extend()` chains across multiple levels:
 
-<<< @/../src/examples.ts#sport-car
+<<< @/../src/xml/examples.ts#sport-car
 
 ```ts
 const sc = SportCar.fromXML(`...`);
@@ -78,7 +78,7 @@ class Truck extends Vehicle.extend({ payload: xml.prop(z.number()) }, { tagname:
 
 When you want a standalone class that reuses a schema shape **without** a prototype link to the parent, pass an extended schema to `xmlModel()` directly:
 
-<<< @/../src/examples.ts#car-no-proto
+<<< @/../src/xml/examples.ts#car-no-proto
 
 ```ts
 const car = CarStandalone.fromXML(`...`);

@@ -1,30 +1,28 @@
 import type { XMLElement } from "./types";
-import { kebabCase } from "./util/kebab-case";
+import { kebabCase } from "../util/kebab-case";
 import { z } from "zod";
 
-// Augment Zod v4's GlobalMeta to include our XML metadata keys
+const metaKey = "@@xml-model" as const;
+
+// Augment Zod v4's GlobalMeta with a single namespaced key for all XML metadata.
 declare module "zod" {
   interface GlobalMeta {
-    xml?: XMLFieldMeta;
-    xmlRoot?: XMLRootMeta;
+    [metaKey]?: XMLMeta;
   }
 }
 
 /**
- * Unified field-level XML metadata.
+ * All XML metadata for a schema, used by both field-level and root-level helpers.
  * - `attr` present → field is an XML attribute with that name
  * - `attr` absent  → field is a child element
+ * - `tagname`      → explicit XML tag name (root element or field element)
  */
-export interface XMLFieldMeta {
+export interface XMLMeta {
   attr?: string;
   tagname?: string;
   inline?: boolean;
   ignore?: boolean;
   match?: string | RegExp | ((el: XMLElement) => boolean);
-}
-
-export interface XMLRootMeta {
-  tagname?: string;
 }
 
 type AnyXmlModelClass = {
@@ -43,12 +41,12 @@ function isXmlModelClass(v: unknown): v is AnyXmlModelClass {
 }
 
 /**
- * Attaches XMLFieldMeta to a field schema (marks it as a child element field).
+ * Attaches XMLMeta to a field schema (marks it as a child element field).
  * Also accepts an xmlModel class directly → calls Class.schema() to extract the ZodPipe.
  */
 function prop<C extends AnyXmlModelClass>(
   cls: C,
-  meta?: XMLFieldMeta,
+  meta?: XMLMeta,
 ): z.ZodPipe<
   C["dataSchema"],
   z.ZodTransform<
@@ -56,52 +54,60 @@ function prop<C extends AnyXmlModelClass>(
     C extends abstract new (...args: any) => infer I ? I : never
   >
 >;
-function prop<S extends z.ZodType>(schema: S, meta?: XMLFieldMeta): S;
-function prop(schemaOrClass: z.ZodType | AnyXmlModelClass, meta: XMLFieldMeta = {}): z.ZodType {
+function prop<S extends z.ZodType>(schema: S, meta?: XMLMeta): S;
+function prop(schemaOrClass: z.ZodType | AnyXmlModelClass, meta: XMLMeta = {}): z.ZodType {
   if (isXmlModelClass(schemaOrClass)) {
-    return schemaOrClass.schema().meta({ xml: meta });
+    return schemaOrClass.schema().meta({ [metaKey]: meta });
   }
-  return (schemaOrClass as z.ZodType).meta({ xml: meta });
+  return schemaOrClass.meta({ [metaKey]: meta });
 }
 
 /**
  * Attaches attribute metadata to a field schema (marks it as an XML attribute field).
  */
 function attr<S extends z.ZodType>(schema: S, meta: { name: string; ignore?: boolean }): S {
-  return schema.meta({ xml: { attr: meta.name, ignore: meta.ignore } });
+  return schema.meta({ [metaKey]: { attr: meta.name, ignore: meta.ignore } });
 }
 
 /**
- * Attaches XMLRootMeta to an object schema (marks it as a root/wrapper element).
+ * Two forms:
+ * - `xml.model(schema, meta?)` — attaches XMLMeta to a schema (used in xmlModel() internals)
+ * - `xml.model(meta)` — returns a GlobalMeta partial for use as the second arg to `.extend()`
+ *
+ * @example
+ * class Car extends Vehicle.extend({ doors: xml.prop(z.number()) }, xml.model({ tagname: "car" })) {}
  */
-function model<S extends z.ZodObject<any>>(schema: S, meta: XMLRootMeta = {}): S {
-  return schema.meta({ xmlRoot: meta });
+function model(meta: XMLMeta): { [metaKey]?: XMLMeta };
+function model<S extends z.ZodObject<any>>(schema: S, meta?: XMLMeta): S;
+function model(
+  schemaOrMeta: z.ZodObject<any> | XMLMeta,
+  meta: XMLMeta = {},
+): z.ZodObject<any> | { [metaKey]?: XMLMeta } {
+  if (schemaOrMeta instanceof z.ZodObject) {
+    return schemaOrMeta.meta({ [metaKey]: meta });
+  }
+  return { [metaKey]: schemaOrMeta };
 }
 
 /** Namespace object for XML metadata helpers. */
 export const xml = { prop, attr, model };
 
 /**
- * Returns the XMLFieldMeta for a schema (element fields only), or an empty object if none is set.
+ * Returns the XMLMeta for a schema, or an empty object if none is set.
  */
-export function getXMLPropMeta(schema: z.ZodType): XMLFieldMeta {
-  return z.globalRegistry.get(schema)?.xml ?? {};
+export function getXMLMeta(schema: z.core.$ZodType): XMLMeta {
+  // FIXME: why do we need as `as` ?
+  return (z.globalRegistry.get(schema)?.[metaKey] as XMLMeta | undefined) ?? {};
 }
 
 /**
  * Returns the attribute metadata for a schema, or undefined if it is not an attribute field.
- * Maps internal `attr` key → external `name` for backward-compat with codec.ts.
  */
-export function getXMLAttrMeta(schema: z.ZodType): { name: string; ignore?: boolean } | undefined {
-  const m = z.globalRegistry.get(schema)?.xml;
-  return m?.attr !== undefined ? { name: m.attr, ignore: m.ignore } : undefined;
-}
-
-/**
- * Returns the XMLRootMeta for a schema, or an empty object if none is set.
- */
-export function getXMLRootMeta(schema: z.ZodType): XMLRootMeta {
-  return z.globalRegistry.get(schema)?.xmlRoot ?? {};
+export function getXMLAttrMeta(
+  schema: z.core.$ZodType,
+): { name: string; ignore?: boolean } | undefined {
+  const m = getXMLMeta(schema);
+  return m.attr !== undefined ? { name: m.attr, ignore: m.ignore } : undefined;
 }
 
 /**
@@ -110,8 +116,8 @@ export function getXMLRootMeta(schema: z.ZodType): XMLRootMeta {
  * - For inline arrays, falls back to the element schema's root tagname (if any)
  * - Otherwise converts fieldName to kebab-case.
  */
-export function getPropTagname(fieldName: string, schema: z.ZodType): string {
-  const meta = getXMLPropMeta(schema);
+export function getPropTagname(fieldName: string, schema: z.core.$ZodType): string {
+  const meta = getXMLMeta(schema);
   if (meta.tagname) return meta.tagname;
   if (meta.inline && schema instanceof z.ZodArray) {
     const elementTagname = getRootTagname(schema.def.element);
@@ -125,9 +131,9 @@ export function getPropTagname(fieldName: string, schema: z.ZodType): string {
  * Returns the tagname from meta, or empty string if not set.
  * Unwraps ZodPipe to find the inner ZodObject's metadata.
  */
-export function getRootTagname(schema: z.ZodType): string {
+export function getRootTagname(schema: z.core.$ZodType): string {
   if (schema instanceof z.ZodPipe) return getRootTagname(schema.def.in);
-  return getXMLRootMeta(schema).tagname ?? "";
+  return getXMLMeta(schema).tagname ?? "";
 }
 
 /**
@@ -135,7 +141,7 @@ export function getRootTagname(schema: z.ZodType): string {
  * Falls back to exact tag name equality using `defaultTagname`.
  */
 export function resolveMatchFn(
-  match: XMLFieldMeta["match"],
+  match: XMLMeta["match"],
   defaultTagname: string,
 ): (el: XMLElement) => boolean {
   if (!match) return (el) => el.name === defaultTagname;

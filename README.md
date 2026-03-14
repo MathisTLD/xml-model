@@ -1,54 +1,56 @@
 # XML Model
 
-**[Documentation](https://mathistld.github.io/xml-model/)**
+**[📖 Documentation](https://mathistld.github.io/xml-model/)**
 
-## Usage
+**[🧑‍💻 Source on GitHub](https://github.com/MathisTLD/xml-model)**
 
-Needs [typescript-rtti](https://github.com/typescript-rtti/typescript-rtti) to retrieve type at runtime.
+## Installation
 
-To build something that relies in `xml-model` with vite
+xml-model requires [Zod v4](https://zod.dev) as a peer dependency.
 
-```typescript
-import { defineConfig } from "vite";
-import XMLModelVitePlugin from "xml-model/vite";
-
-export default defineConfig({
-  plugins: [
-    // see options in JSDoc
-    // note that is tsconfig that includes your source files is not tsconfig.json you MUST use the tsconfig option
-    XMLModelVitePlugin(),
-  ],
-  // ... rest of the config
-});
+```bash
+npm install xml-model zod
 ```
 
-## Documentation
+<!-- #region what-is -->
 
-### Example
+## What is xml-model?
 
-```typescript
-import { Model, getModel, XML } from "xml-model";
+xml-model lets you define TypeScript classes that map directly to XML documents using [Zod](https://zod.dev) schemas. Annotate fields with `xml.prop()` or `xml.attr()`, then parse or serialise with a single method call.
 
-@Model({
-  fromXML(ctx) {
-    const instance = new MyClass();
-    if (ctx.properties.foo) instance.foo = ctx.properties.foo;
-    return instance;
-  },
-})
-class MyClass {
-  foo = "bar";
+```ts
+import { z } from "zod";
+import { xmlModel, xml } from "xml-model";
+
+class Book extends xmlModel(
+  z.object({
+    isbn: xml.attr(z.string(), { name: "isbn" }),
+    title: xml.prop(z.string()),
+    year: xml.prop(z.number()),
+  }),
+  { tagname: "book" },
+) {
+  label() {
+    return `${this.title} (${this.year})`;
+  }
 }
 
-const model = getModel(MyClass);
+// XML → class instance
+const book = Book.fromXML(`
+  <book isbn="978-0-7432-7356-5">
+    <title>Dune</title>
+    <year>1965</year>
+  </book>
+`);
 
-const a: MyClass = model.fromXML("<my-class><foo>test</foo></my-class>");
-console.log(JSON.stringify(a)); // {"foo":"test"}
+book.label(); // "Dune (1965)"
+book instanceof Book; // true
 
-const b = new MyClass();
-console.log(XML.stringify(model.toXML(b))); // <my-class><foo>bar</foo></my-class>
-b.foo = "other";
-console.log(XML.stringify(model.toXML(b))); // <my-class><foo>other</foo></my-class>
+// class instance → XML string
+Book.toXMLString(book);
+// <book isbn="978-0-7432-7356-5"><title>Dune</title><year>1965</year></book>
 ```
 
-See [source code](https://github.com/MathisTLD/xml-model) for more
+Field names are automatically converted to kebab-case XML tags (`publishedAt` → `<published-at>`). Extend classes with `.extend()` to build inheritance hierarchies — child instances remain `instanceof` the parent and inherit all methods.
+
+<!-- #endregion what-is -->

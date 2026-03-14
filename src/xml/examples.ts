@@ -1,6 +1,7 @@
 // This file is for tests and documentation only — it does not end up in the build.
 import { z } from "zod";
-import { xml, xmlModel } from "./index";
+import { xml } from "./schema-meta";
+import { xmlModel } from "./model";
 
 // #region engine
 /**
@@ -61,7 +62,7 @@ export class Car extends Vehicle.extend(
      */
     engine: xml.prop(Engine),
   },
-  { tagname: "car" },
+  xml.model({ tagname: "car" }),
 ) {}
 // #endregion car
 
@@ -75,7 +76,7 @@ export class SportCar extends Car.extend(
     /** Top speed in km/h: `<top-speed>320</top-speed>` (camelCase → kebab-case) */
     topSpeed: xml.prop(z.number()),
   },
-  { tagname: "sport-car" },
+  xml.model({ tagname: "sport-car" }),
 ) {}
 // #endregion sport-car
 
@@ -90,7 +91,7 @@ export class Motorcycle extends Vehicle.extend(
     /** Whether a sidecar is attached. Omitted from XML when `undefined`. */
     sidecar: xml.prop(z.optional(z.boolean())),
   },
-  { tagname: "motorcycle" },
+  xml.model({ tagname: "motorcycle" }),
 ) {}
 // #endregion motorcycle
 

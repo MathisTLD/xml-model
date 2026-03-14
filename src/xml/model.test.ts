@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import { xmlModel } from "./model";
-import { xml, XMLRoot } from "./index";
-import XML from "./xml";
+import { xml } from "./schema-meta";
+import type { XMLRoot } from "./types";
+import XML from ".";
 import {
   Vehicle,
   Car,
@@ -106,6 +107,36 @@ describe("xmlModel", () => {
     expect(v).toBeInstanceOf(SimpleVehicle);
     expect(v.make).toBe("Ford");
     expect(SimpleVehicle.dataSchema).toBe(Schema);
+  });
+
+  it("generic from() delegates to fromXML", () => {
+    const car = Car.from("xml", carXml);
+    expect(car).toBeInstanceOf(Car);
+    expect(car.make).toBe("Toyota");
+  });
+
+  it("generic to() delegates to toXMLString", () => {
+    const car = Car.fromXML(carXml);
+    const out = Car.to("xml", car);
+    expect(out).toContain("<car");
+    expect(out).toContain('vin="VIN001"');
+  });
+
+  it("fromData() hook allows custom instantiation", () => {
+    class CustomCar extends Car {
+      extra = "injected";
+      static fromData<T extends new (...args: any[]) => any>(
+        this: T,
+        data: ConstructorParameters<typeof Car>[0],
+      ): InstanceType<T> {
+        const instance = new this(data);
+        instance.extra = "custom";
+        return instance;
+      }
+    }
+    const car = CustomCar.fromXML(carXml);
+    expect(car).toBeInstanceOf(CustomCar);
+    expect((car as any).extra).toBe("custom");
   });
 });
 

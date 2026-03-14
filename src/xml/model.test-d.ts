@@ -13,6 +13,8 @@ describe("class model", () => {
 describe("composition", () => {
   test("nested class instance types include inherited methods", () => {
     const fleet = Fleet.fromXML("");
+    // fleet.cars[0] is typed via z.infer<Car.schema()>, which uses InstanceType<typeof Car>
+    // so inherited methods like label() are included.
     expectTypeOf(fleet.cars[0]).toEqualTypeOf<Car>();
     expectTypeOf(fleet.cars[0].label).toEqualTypeOf<() => string>();
     expectTypeOf(fleet.cars[0].doors).toEqualTypeOf<number>();
@@ -51,7 +53,7 @@ describe("class extension via .extend()", () => {
   test("inline extend without explicit class keeps types", () => {
     class TruckBase extends Vehicle.extend(
       { payload: xml.prop(z.number()) },
-      { tagname: "truck" },
+      xml.model({ tagname: "truck" }),
     ) {}
     const truck = TruckBase.fromXML("");
     expectTypeOf(truck.make).toEqualTypeOf<string>(); // Vehicle

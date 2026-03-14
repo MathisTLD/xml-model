@@ -2,17 +2,19 @@
 
 ## Installation
 
+xml-model requires [Zod v4](https://zod.dev) as a peer dependency.
+
 ```bash
-npm install xml-model
+npm install xml-model zod
 ```
 
-No special TypeScript compiler plugins or `tsconfig.json` changes are required. xml-model is powered entirely by [Zod](https://zod.dev) schemas at runtime.
+No special TypeScript compiler plugins or `tsconfig.json` changes are required.
 
 ## First model
 
 Define a class by extending the result of `xmlModel()`. Pass a Zod schema with fields annotated using `xml.prop()` (child elements) and `xml.attr()` (XML attributes), and a `{ tagname }` option for the root element name.
 
-<<< @/../src/examples.ts#engine
+<<< @/../src/xml/examples.ts#engine
 
 ```ts
 // XML → instance
@@ -30,7 +32,7 @@ Engine.toXMLString(engine);
 
 Any methods you define on the class are available on parsed instances:
 
-<<< @/../src/examples.ts#vehicle
+<<< @/../src/xml/examples.ts#vehicle
 
 ```ts
 const vehicle = Vehicle.fromXML(

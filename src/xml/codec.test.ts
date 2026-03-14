@@ -3,7 +3,7 @@ import { z } from "zod";
 import { xmlCodec } from "./codec";
 import { xml } from "./schema-meta";
 import { xmlModel } from "./model";
-import XML from "./xml";
+import XML from ".";
 
 // -----------------------------------------------------------------------
 // Helpers

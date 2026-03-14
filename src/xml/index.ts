@@ -1,9 +1,6 @@
-/**
- * @rtti:skip
- */
 import XMLJS from "./xml-js";
 
-import { XMLElement, XMLRoot } from "../types";
+import { XMLElement, XMLRoot } from "./types";
 
 /**
  * Parses an XML string into an `XMLRoot` document tree.
