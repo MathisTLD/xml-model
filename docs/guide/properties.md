@@ -1,197 +1,147 @@
 # Properties
 
-The `@Prop()` decorator customises how a single class property is mapped to XML. All options are optional — omitting `@Prop()` entirely uses the defaults inferred from the property's TypeScript type.
+Fields in a model schema are annotated with `xml.prop()` (child elements) or `xml.attr()` (XML attributes). Both helpers attach XML metadata to the Zod schema via Zod v4's `.meta()` API.
 
-## Basic usage
+## Child elements — `xml.prop()`
+
+`xml.prop(schema, options?)` marks a field as a child element. The field name is converted to kebab-case for the tag name by default.
 
 ```ts
-@Model({ fromXML: ... })
-class Book {
-  @Prop() title: string = "";
-  @Prop() year: number = 0;
+z.object({
+  title: xml.prop(z.string()), // <title>…</title>
+  publishedAt: xml.prop(z.number()), // <published-at>…</published-at>
+});
+```
+
+### Options
+
+| Option    | Type                                  | Description                                                                                            |
+| --------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `tagname` | `string`                              | Override the element tag name.                                                                         |
+| `inline`  | `boolean`                             | For arrays: place items as direct siblings instead of inside a wrapper element. See [Arrays](#arrays). |
+| `ignore`  | `boolean`                             | Exclude this field from XML conversion entirely.                                                       |
+| `match`   | `string \| RegExp \| (el) => boolean` | Custom predicate for matching source elements during parsing.                                          |
+
+## XML attributes — `xml.attr()`
+
+`xml.attr(schema, { name })` marks a field as an XML attribute on the root element.
+
+<<< @/../src/examples.ts#vehicle
+
+```xml
+<vehicle vin="V001"><make>Toyota</make><year>2020</year></vehicle>
+```
+
+`vin` is an attribute; `make` and `year` are child elements.
+
+## Nested models
+
+Pass an xmlModel class directly to `xml.prop()` to embed it as a child element. The codec parses it into a class instance automatically.
+
+<<< @/../src/examples.ts#engine
+
+<<< @/../src/examples.ts#car
+
+```ts
+const car = Car.fromXML(`
+  <car vin="V001">
+    <make>Toyota</make><year>2020</year><doors>4</doors>
+    <engine type="petrol"><horsepower>150</horsepower></engine>
+  </car>
+`);
+
+car.engine instanceof Engine; // true
+car.engine.horsepower; // 150
+```
+
+When using a class as a field value inside `z.array()`, use `MyClass.schema()` instead — it returns a `ZodPipe` that also instantiates the class:
+
+```ts
+cars: xml.prop(z.array(Car.schema()), { inline: true }),
+```
+
+## Optional fields
+
+Wrap the schema in `z.optional()` to make a field optional. When the element is absent from the XML the field is `undefined`; `toXMLString` omits it entirely.
+
+<<< @/../src/examples.ts#motorcycle
+
+```ts
+const moto = Motorcycle.fromXML(
+  `<motorcycle vin="V003"><make>Kawasaki</make><year>2019</year></motorcycle>`,
+);
+moto.sidecar; // undefined
+
+const motoWithSidecar = Motorcycle.fromXML(`
+  <motorcycle vin="V005"><make>Ural</make><year>2018</year><sidecar>true</sidecar></motorcycle>
+`);
+motoWithSidecar.sidecar; // true
+```
+
+## Arrays
+
+### Inline arrays (`inline: true`)
+
+Each item is a **direct child** of the root element. Items of different types can be interleaved freely in document order.
+
+<<< @/../src/examples.ts#fleet
+
+```xml
+<fleet name="Acme Fleet">
+  <car vin="V001">…</car>
+  <car vin="V002">…</car>
+  <motorcycle vin="V003">…</motorcycle>
+</fleet>
+```
+
+Each `<car>` and `<motorcycle>` is a direct child of `<fleet>`. The codec matches them by their root tag name.
+
+### Non-inline arrays (default)
+
+Items are nested inside a **single wrapper element** whose tag name comes from the field name (kebab-cased).
+
+<<< @/../src/examples.ts#showroom
+
+```xml
+<showroom name="Acme Dealers">
+  <models>
+    <model>Corolla</model>
+    <model>Civic</model>
+    <model>Mustang</model>
+  </models>
+</showroom>
+```
+
+All `<model>` items live inside the `<models>` container. The tag name of individual items is not significant during parsing.
+
+### When to use each
+
+|                | Inline (`inline: true`)         | Non-inline (default)                    |
+| -------------- | ------------------------------- | --------------------------------------- |
+| Item placement | Direct children of root element | Nested inside a wrapper element         |
+| Multiple types | Yes — mix freely by tag name    | No — single homogeneous list            |
+| Typical use    | Heterogeneous sibling elements  | Homogeneous list with a named container |
+
+## Low-level `.meta()` API
+
+`xml.prop()` and `xml.attr()` are convenience helpers that call Zod v4's `.meta()` under the hood. You can use `.meta()` directly for fine-grained control:
+
+```ts
+z.object({
+  id: z.string().meta({ xml: { attr: "id" } }), // equivalent to xml.attr(z.string(), { name: "id" })
+  name: z.string().meta({ xml: {} }), // equivalent to xml.prop(z.string())
+  hidden: z.string().meta({ xml: { ignore: true } }), // equivalent to xml.prop(z.string(), { ignore: true })
+});
+```
+
+The `xml` key inside `.meta()` accepts the full `XMLFieldMeta` interface:
+
+```ts
+interface XMLFieldMeta {
+  attr?: string; // if present → XML attribute with this name; absent → child element
+  tagname?: string; // override element tag name
+  inline?: boolean; // inline array items
+  ignore?: boolean; // exclude from XML
+  match?: string | RegExp | ((el: XMLElement) => boolean); // custom element matcher
 }
 ```
-
-Property names are converted to kebab-case XML tags automatically: `publishedAt` → `<published-at>`.
-
-## Options
-
-### tagname
-
-Override the XML tag name for this property:
-
-```ts
-@Prop({ tagname: "pub-year" })
-year: number = 0;
-// maps to <pub-year>1965</pub-year>
-```
-
-### ignore
-
-Exclude a property from XML conversion entirely:
-
-```ts
-@Prop({ ignore: true })
-internalId: string = "";
-// never appears in XML output or input
-```
-
-### sourceElements
-
-Controls which XML elements are used as the source for this property during `fromXML`.
-
-- **`string`** — exact tag name match
-- **`RegExp`** — tag name pattern match
-- **`function`** — custom predicate `(element, context) => boolean`
-
-```ts
-// Match any element whose name starts with "alt-"
-@Prop({ sourceElements: /^alt-/ })
-altTitles: string[] = [];
-
-// Custom predicate
-@Prop({
-  sourceElements: (element) => element.attributes?.lang === "en",
-})
-englishTitle: string = "";
-```
-
-### inline
-
-When `true`, array items are serialised and deserialised directly inside the parent element rather than being wrapped in a container tag.
-
-**Default (container tag):**
-
-```xml
-<book>
-  <chapters>
-    <chapter>...</chapter>
-    <chapter>...</chapter>
-  </chapters>
-</book>
-```
-
-**With `inline: true`:**
-
-```xml
-<book>
-  <chapter>...</chapter>
-  <chapter>...</chapter>
-</book>
-```
-
-```ts
-@Prop({ inline: true })
-chapters: Chapter[] = [];
-```
-
-### model
-
-Explicitly specify which `XMLModel` to use when converting this property's value. Useful when the property type is an interface or when you want to use a different model than the default for that class.
-
-```ts
-const specialModel = createModel(Address, { ... });
-
-@Prop({ model: specialModel })
-address: Address = new Address();
-```
-
-### fromXML
-
-Override the default deserialization logic for this property:
-
-```ts
-@Prop({
-  fromXML({ elements }) {
-    return elements[0]?.attributes?.["value"] ?? "";
-  },
-})
-code: string = "";
-```
-
-### toXML
-
-Override the default serialization logic for this property:
-
-```ts
-@Prop({
-  toXML({ value }) {
-    return {
-      elements: [{ type: "element", name: "code", attributes: { value: String(value) } }],
-    };
-  },
-})
-code: string = "";
-```
-
-## Array handling
-
-For array properties whose element type has a registered model, xml-model handles conversion automatically.
-
-**Without `inline`** (default), the array is expected to live inside a wrapper element whose tag matches the property name:
-
-```xml
-<book>
-  <chapters>
-    <chapter><title>One</title></chapter>
-    <chapter><title>Two</title></chapter>
-  </chapters>
-</book>
-```
-
-```ts
-@Prop()
-chapters: Chapter[] = [];
-```
-
-**With `inline: true`**, each item's element appears directly inside the parent:
-
-```xml
-<book>
-  <chapter><title>One</title></chapter>
-  <chapter><title>Two</title></chapter>
-</book>
-```
-
-```ts
-@Prop({ inline: true })
-chapters: Chapter[] = [];
-```
-
-## Union of literals
-
-Union types composed entirely of literals of the same primitive type are handled automatically by delegating to the constructor's model. For example, a property typed as `0 | 1 | 2` delegates to the `Number` model.
-
-```ts
-@Prop()
-status: 0 | 1 | 2 = 0;
-```
-
-## Caveats
-
-### `import type` and silent property skipping
-
-xml-model uses typescript-rtti to read property types at runtime. If a class used as a property type is imported with `import type`, TypeScript erases the import before the RTTI transformer runs — the property's type becomes `Object` at runtime and xml-model cannot convert it.
-
-xml-model logs a warning when it detects this situation:
-
-```
-[xml-model] Property 'mask' on 'VideoAnalysisFilter' has type Object at runtime.
-If its declared type is a class, make sure it is imported as a value and not with 'import type'.
-```
-
-**Fix:** use a value import for any class that appears as a property type:
-
-```ts
-// Wrong — erased at runtime
-import type { Mask } from "./mask";
-
-// Correct
-import { Mask } from "./mask";
-
-class VideoAnalysisFilter {
-  mask: Mask; // now reflected correctly
-}
-```
-
-If you need the type only for type-checking and not at runtime, use `@Prop({ model: ... })` to supply the model explicitly instead.

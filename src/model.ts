@@ -13,7 +13,10 @@ import type { Options } from "xml-js";
  *           classes; `extend()` widens it to `InstanceType<Self> & z.infer<ExtendedSchema>`
  *           so that parent class methods survive into child instances.
  */
-type XmlModelConstructor<S extends z.ZodObject<any>, Inst extends z.infer<S> = z.infer<S>> = {
+export type XmlModelConstructor<
+  S extends z.ZodObject<any>,
+  Inst extends z.infer<S> = z.infer<S>,
+> = {
   new (data: z.infer<S>): Inst;
   /** Returns a new instance parsed from XML. Return type is the concrete subclass. */
   fromXML<T extends abstract new (...args: any[]) => any>(
@@ -68,12 +71,13 @@ export function xmlModel<S extends z.ZodObject<any>>(
   schema: S,
   meta?: XMLRootMeta,
 ): XmlModelConstructor<S> {
-  // .meta() clones the schema and registers the clone — capture it for codec use.
-  // `schema` (the original) is kept as dataSchema so extensions inherit the clean shape.
+  // xml.model() clones the schema and registers the clone in z.globalRegistry.
+  // The clone (rootSchema) is used as dataSchema; xmlRoot metadata does not propagate
+  // through .extend(), so child schemas start clean without inheriting the parent tagname.
   const rootSchema = meta ? xml.model(schema, meta) : schema;
   type Data = z.infer<S>;
 
-  class XmlModelBase {
+  return class {
     static readonly dataSchema: S = rootSchema;
 
     static schema() {
@@ -115,7 +119,5 @@ export function xmlModel<S extends z.ZodObject<any>>(
     constructor(data: Data) {
       Object.assign(this, data);
     }
-  }
-
-  return XmlModelBase as unknown as XmlModelConstructor<S>;
+  } as unknown as XmlModelConstructor<S>;
 }

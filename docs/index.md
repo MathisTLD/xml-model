@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "xml-model"
   text: "XML ↔ TypeScript"
-  tagline: Bidirectional XML and object conversion using decorators and runtime type information.
+  tagline: Bidirectional XML and class conversion powered by Zod schemas.
   actions:
     - theme: brand
       text: Get Started
@@ -13,31 +13,39 @@ hero:
 
 ## What is xml-model?
 
-xml-model lets you define TypeScript classes that map directly to XML documents. Annotate your class with `@Model()` and its properties with `@Prop()`, then convert in either direction with a single method call.
+xml-model lets you define TypeScript classes that map directly to XML documents using [Zod](https://zod.dev) schemas. Annotate fields with `xml.prop()` or `xml.attr()`, then parse or serialise with a single method call.
 
 ```ts
-import { Model, Prop } from "xml-model";
+import { z } from "zod";
+import { xmlModel, xml } from "xml-model";
 
-@Model({
-  fromXML({ xml, properties }) {
-    const obj = new Book();
-    obj.title = properties.title as string;
-    obj.year = properties.year as number;
-    return obj;
-  },
-})
-class Book {
-  @Prop() title: string = "";
-  @Prop() year: number = 0;
+class Book extends xmlModel(
+  z.object({
+    isbn: xml.attr(z.string(), { name: "isbn" }),
+    title: xml.prop(z.string()),
+    year: xml.prop(z.number()),
+  }),
+  { tagname: "book" },
+) {
+  label() {
+    return `${this.title} (${this.year})`;
+  }
 }
 
-const model = getModel(Book);
+// XML → class instance
+const book = Book.fromXML(`
+  <book isbn="978-0-7432-7356-5">
+    <title>Dune</title>
+    <year>1965</year>
+  </book>
+`);
 
-// XML → object
-const book = model.fromXML(`<book><title>Dune</title><year>1965</year></book>`);
+book.label(); // "Dune (1965)"
+book instanceof Book; // true
 
-// object → XML
-const xml = model.toXML(book);
+// class instance → XML string
+Book.toXMLString(book);
+// <book isbn="978-0-7432-7356-5"><title>Dune</title><year>1965</year></book>
 ```
 
-Class and property names are automatically converted to kebab-case XML tags (`BookChapter` → `book-chapter`, `publishedAt` → `published-at`). Runtime type information is provided by [typescript-rtti](https://typescript-rtti.org), so no manual type annotations are needed in most cases.
+Field names are automatically converted to kebab-case XML tags (`publishedAt` → `<published-at>`). Extend classes with `.extend()` to build inheritance hierarchies — child instances remain `instanceof` the parent and inherit all methods.

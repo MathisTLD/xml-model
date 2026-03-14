@@ -1,11 +1,9 @@
 # XML Utilities
 
-The `XML` namespace object provides utility functions for working with the internal xml-js element tree. Import it from `xml-model`:
+The `XML` namespace object provides utility functions for working with the internal xml-js element tree. Import it from the dedicated entry point:
 
 ```ts
 import XML from "xml-model/xml";
-// or from the main entry
-import { XML } from "xml-model";
 ```
 
 ## XML.parse
@@ -19,11 +17,14 @@ const root = XML.parse("<book><title>Dune</title></book>");
 
 ## XML.stringify
 
-Serialises an `XMLRoot` or `XMLElement` back into an XML string.
+Serialises an `XMLRoot` or `XMLElement` back into an XML string. Accepts the same options as [xml-js `js2xml`](https://www.npmjs.com/package/xml-js).
 
 ```ts
 const xmlString = XML.stringify(root);
 // "<book><title>Dune</title></book>"
+
+// Pretty-print with indentation
+const pretty = XML.stringify(root, { spaces: 2 });
 ```
 
 ## XML.getContent

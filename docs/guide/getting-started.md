@@ -6,74 +6,40 @@
 npm install xml-model
 ```
 
-`vite` and `@rollup/plugin-typescript` are optional peer dependencies required only when building with Vite (see [Vite Plugin](/vite-plugin)).
+No special TypeScript compiler plugins or `tsconfig.json` changes are required. xml-model is powered entirely by [Zod](https://zod.dev) schemas at runtime.
 
-## TypeScript configuration
+## First model
 
-xml-model relies on TypeScript decorators and on [typescript-rtti](https://typescript-rtti.org) for runtime type information. Two `tsconfig.json` settings are required:
+Define a class by extending the result of `xmlModel()`. Pass a Zod schema with fields annotated using `xml.prop()` (child elements) and `xml.attr()` (XML attributes), and a `{ tagname }` option for the root element name.
 
-```json
-{
-  "compilerOptions": {
-    "experimentalDecorators": true,
-    "useDefineForClassFields": false
-  }
-}
-```
-
-:::warning useDefineForClassFields
-Setting `useDefineForClassFields: false` is essential. With `true` (the TypeScript default when `target` is `ES2022` or later), class field initializers override the metadata written by decorators, breaking property detection.
-:::
-
-## Vite plugin setup
-
-The typescript-rtti transformer must run during compilation. Add the plugin to your `vite.config.ts`:
+<<< @/../src/examples.ts#engine
 
 ```ts
-import { defineConfig } from "vite";
-import XMLModelPlugin from "xml-model/vite";
+// XML → instance
+const engine = Engine.fromXML(`<engine type="petrol"><horsepower>150</horsepower></engine>`);
+engine.type; // "petrol"
+engine.horsepower; // 150
+engine instanceof Engine; // true
 
-export default defineConfig({
-  plugins: [...XMLModelPlugin()],
-});
+// instance → XML string
+Engine.toXMLString(engine);
+// <engine type="petrol"><horsepower>150</horsepower></engine>
 ```
 
-See [Vite Plugin](/vite-plugin) for all available options.
+## Class methods
 
-## First example
+Any methods you define on the class are available on parsed instances:
+
+<<< @/../src/examples.ts#vehicle
 
 ```ts
-import { Model, Prop, getModel } from "xml-model";
-
-@Model({
-  fromXML({ properties }) {
-    const article = new Article();
-    article.title = properties.title as string;
-    article.body = properties.body as string;
-    return article;
-  },
-})
-class Article {
-  @Prop() title: string = "";
-  @Prop() body: string = "";
-}
-
-const model = getModel(Article);
-
-// Parse XML into an Article instance
-const article = model.fromXML(`
-  <article>
-    <title>Hello world</title>
-    <body>This is the body.</body>
-  </article>
-`);
-
-console.log(article.title); // "Hello world"
-
-// Serialise back to XML
-const xml = model.toXML(article);
-console.log(XML.stringify(xml));
-// <article><title>Hello world</title><body>This is the body.</body></article>
+const vehicle = Vehicle.fromXML(
+  `<vehicle vin="V001"><make>Toyota</make><year>2020</year></vehicle>`,
+);
+vehicle.label(); // "2020 Toyota"
 ```
 
-Property names are converted to kebab-case automatically: a TypeScript property `publishedAt` maps to the `<published-at>` XML tag. The class name `Article` maps to the `<article>` root tag. Both defaults can be overridden — see [Models](/guide/models) and [Properties](/guide/properties).
+## Next steps
+
+- [Models](/guide/models) — class extension, nested models, `dataSchema`, `schema()`
+- [Properties](/guide/properties) — `xml.prop()`, `xml.attr()`, arrays, optional fields

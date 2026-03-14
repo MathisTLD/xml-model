@@ -1,139 +1,140 @@
 # Models
 
-A **model** describes how a TypeScript class maps to XML. You create one with the `@Model()` decorator or the `createModel` function.
+A **model** is a class produced by `xmlModel()`. It carries a Zod schema that drives both parsing and serialisation, and exposes static helpers for converting to and from XML.
 
-## @Model() decorator
+## Creating a model
+
+Pass a Zod schema annotated with `xml.prop()` / `xml.attr()` and an optional `{ tagname }` for the root element:
 
 ```ts
-import { Model, getModel } from "xml-model";
+import { z } from "zod";
+import { xmlModel, xml } from "xml-model";
 
-@Model({
-  fromXML({ properties }) {
-    const p = new Person();
-    p.name = properties.name as string;
-    return p;
-  },
-})
-class Person {
-  name: string = "";
-}
-
-const model = getModel(Person);
+class Article extends xmlModel(
+  z.object({
+    slug: xml.attr(z.string(), { name: "slug" }),
+    title: xml.prop(z.string()),
+  }),
+  { tagname: "article" },
+) {}
 ```
 
-### Options
+When `tagname` is omitted the class name is converted to kebab-case automatically (`ArticleSection` → `<article-section>`).
 
-| Option    | Type                | Description                                                                   |
-| --------- | ------------------- | ----------------------------------------------------------------------------- |
-| `fromXML` | middleware function | Converts XML into an instance. Required for root models (no default).         |
-| `toXML`   | middleware function | Converts an instance to XML. Optional — a default implementation is provided. |
-| `tagname` | `string`            | Override the root XML tag name. Defaults to the class name in kebab-case.     |
-| `parent`  | `XMLModel`          | Explicitly set the parent model. Usually inferred from the prototype chain.   |
+## Static API
 
-:::warning fromXML is required
-The default `fromXML` always throws. Every model that is not a child class of another decorated model **must** provide a `fromXML` implementation.
-:::
+| Method / property                         | Description                                                                                                    |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `MyClass.fromXML(xml)`                    | Parses an XML string or `XMLRoot` and returns a `MyClass` instance.                                            |
+| `MyClass.toXML(instance)`                 | Converts an instance to an `XMLRoot` document tree.                                                            |
+| `MyClass.toXMLString(instance, options?)` | Converts an instance to an XML string.                                                                         |
+| `MyClass.dataSchema`                      | The raw `ZodObject` schema. Use for codec internals, `z.array()`, or `.extend()`.                              |
+| `MyClass.schema()`                        | Returns a `ZodPipe` that transforms parsed data into a class instance. Use inside `xml.prop()` or `z.array()`. |
 
-## fromXML context
+## Class extension via `.extend()`
 
-The `fromXML` middleware receives a context object:
+`.extend()` creates a **true subclass** — child instances are `instanceof` the parent and inherit all its methods.
+
+<<< @/../src/examples.ts#vehicle
+
+<<< @/../src/examples.ts#car
 
 ```ts
-interface fromXMLContext<T> {
-  xml: XMLRoot; // the full parsed XML document
-  properties: PropertiesRecord<T>; // lazily-resolved property values
-  model: XMLModel<T>;
-}
+const car = Car.fromXML(`
+  <car vin="V001">
+    <make>Toyota</make><year>2020</year><doors>4</doors>
+    <engine type="petrol"><horsepower>150</horsepower></engine>
+  </car>
+`);
+
+car.doors; // 4         — Car field
+car.label(); // "2020 Toyota" — Vehicle method, inherited
+car instanceof Car; // true
+car instanceof Vehicle; // true
 ```
 
-`context.properties` is a lazy getter — the property conversion pipeline runs the first time you access it.
+### Chained extension
+
+`.extend()` chains across multiple levels:
+
+<<< @/../src/examples.ts#sport-car
 
 ```ts
-@Model({
-  fromXML({ properties }) {
-    const obj = new Config();
-    const props = properties; // triggers property resolution
-    obj.host = props.host as string;
-    obj.port = props.port as number;
-    return obj;
-  },
-})
-class Config {
-  host: string = "";
-  port: number = 0;
-}
+const sc = SportCar.fromXML(`...`);
+sc instanceof SportCar; // true
+sc instanceof Car; // true
+sc instanceof Vehicle; // true
 ```
 
-## toXML context
+### Inline extend (no explicit class)
 
-The `toXML` middleware receives:
+You can use `.extend()` inline without naming the intermediate class:
 
 ```ts
-interface toXMLContext<T> {
-  object: T; // the instance being serialised
-  properties: XMLPropertiesRecord<T>; // lazily-resolved per-property XMLRoot fragments
-  model: XMLModel<T>;
-}
+class Truck extends Vehicle.extend({ payload: xml.prop(z.number()) }, { tagname: "truck" }) {}
 ```
 
-The default `toXML` implementation assembles all property fragments into a root element — you only need to override it for non-standard serialisation.
+## Fresh class pattern
 
-## Inheritance
+When you want a standalone class that reuses a schema shape **without** a prototype link to the parent, pass an extended schema to `xmlModel()` directly:
 
-Child classes automatically inherit all properties and conversion logic from their parent. The parent model is detected via the prototype chain; you do not need to repeat `@Prop()` on inherited properties.
+<<< @/../src/examples.ts#car-no-proto
 
 ```ts
-@Model({
-  fromXML({ properties }) {
-    const a = new Animal();
-    a.name = properties.name as string;
-    return a;
-  },
-})
-class Animal {
-  name: string = "";
-}
-
-@Model({
-  fromXML({ properties }) {
-    const d = new Dog();
-    d.name = properties.name as string;
-    d.breed = properties.breed as string;
-    return d;
-  },
-})
-class Dog extends Animal {
-  breed: string = "";
-}
+const car = CarStandalone.fromXML(`...`);
+car instanceof Vehicle; // false — no shared prototype
+// car.label is undefined — Vehicle methods not available
 ```
 
-`Dog` inherits the `name` property mapping from `Animal`. You can call `model.resolveAllProperties()` to inspect the merged property map.
+Use this when the class hierarchy doesn't matter and you just want to share field definitions.
 
-## createModel
+## Direct JS class inheritance
 
-`createModel` is the programmatic equivalent of `@Model()`:
+Extend a model class with a regular `class … extends` to add methods without changing the schema:
 
 ```ts
-import { createModel } from "xml-model";
+class ElectricCar extends Car {
+  isElectric() {
+    return this.engine.type === "electric";
+  }
+}
 
-const model = createModel(Person, {
-  fromXML({ properties }) {
-    const p = new Person();
-    p.name = properties.name as string;
-    return p;
-  },
+const car = ElectricCar.fromXML(`...`);
+car instanceof ElectricCar; // true
+car instanceof Car; // true
+car.isElectric(); // true
+car.label(); // "2021 Honda" — inherited from Vehicle
+```
+
+## Two-step pattern (`xml.model` + `xmlModel`)
+
+Annotate a schema separately with `xml.model()` and then pass it to `xmlModel()`. Useful when you want to share the schema across multiple contexts:
+
+```ts
+import { xml, xmlModel } from "xml-model";
+import { z } from "zod";
+
+const VehicleSchema = xml.model(z.object({ make: xml.prop(z.string()) }), { tagname: "vehicle" });
+
+class SimpleVehicle extends xmlModel(VehicleSchema) {}
+SimpleVehicle.dataSchema === VehicleSchema; // true
+```
+
+## `dataSchema` and `schema()`
+
+`dataSchema` is the raw `ZodObject`. Use it to extend schemas or pass to `xmlCodec()`:
+
+```ts
+// Extend the schema without inheriting the prototype chain
+const ExtendedSchema = Vehicle.dataSchema.extend({
+  payload: xml.prop(z.number()),
 });
 ```
 
-It throws if a model for that type already exists.
-
-## getModel
-
-`getModel` retrieves a registered model by constructor:
+`schema()` returns a `ZodPipe` that transforms parsed data into a class instance. Use it inside `z.array()` or `xml.prop()` when embedding a model as a field of another model:
 
 ```ts
-import { getModel } from "xml-model";
-
-const model = getModel(Person);
-const person = model.fromXML("<person><name>Alice</name></person>");
+cars: xml.prop(z.array(Car.schema()), { inline: true }),
 ```
+
+See [Properties — Arrays](/guide/properties#arrays) for full examples.

@@ -9,10 +9,7 @@ export default async () => {
     base: process.env.VITEPRESS_BASE ?? "/",
     themeConfig: {
       search: { provider: "local" },
-      nav: [
-        { text: "Guide", link: "/guide/getting-started" },
-        { text: "Vite Plugin", link: "/vite-plugin" },
-      ],
+      nav: [{ text: "Guide", link: "/guide/getting-started" }],
       socialLinks: [{ icon: "github", link: "https://github.com/MathisTLD/xml-model" }],
     },
     vite: { plugins: [Sidebar(), llms()] },
