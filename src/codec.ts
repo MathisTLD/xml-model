@@ -8,7 +8,7 @@ import {
   getPropTagname,
   getRootTagname,
   resolveMatchFn,
-  type XMLPropMeta,
+  type XMLFieldMeta,
 } from "./schema-meta";
 import type { Options } from "xml-js";
 
@@ -183,7 +183,7 @@ function buildFromXML<S extends z.ZodObject<any>>(schema: S) {
 /**
  * Converts a list of XML elements into a typed value using the given schema.
  */
-function convertFromXML(schema: z.ZodType, elements: XMLElement[], meta: XMLPropMeta): unknown {
+function convertFromXML(schema: z.ZodType, elements: XMLElement[], meta: XMLFieldMeta): unknown {
   if (schema instanceof z.ZodOptional) {
     if (elements.length === 0) return undefined;
     return convertFromXML(schema.def.innerType, elements, meta);
@@ -352,7 +352,7 @@ function convertToXML(
   schema: z.ZodType,
   value: unknown,
   tagname: string,
-  meta: XMLPropMeta,
+  meta: XMLFieldMeta,
 ): XMLElement[] {
   if (schema instanceof z.ZodOptional) {
     if (value === undefined) return [];

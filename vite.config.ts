@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 
 import { Lib } from "marmotte/vite/lib";
@@ -10,5 +11,10 @@ export default defineConfig(() => {
         typedoc: false,
       }),
     ],
+    test: {
+      typecheck: {
+        enabled: true,
+      },
+    },
   };
 });

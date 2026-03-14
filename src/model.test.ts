@@ -1,84 +1,111 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import { xmlModel } from "./model";
-import { xml, xmlCodec } from "./index";
+import { xml, XMLRoot } from "./index";
 import XML from "./xml";
+import {
+  Vehicle,
+  Car,
+  SportCar,
+  Motorcycle,
+  Fleet,
+  Engine,
+  CarStandalone,
+  Showroom,
+} from "./examples";
 
 // -----------------------------------------------------------------------
-// Basic xmlModel
+// Helpers
 // -----------------------------------------------------------------------
 
-class Book extends xmlModel(
-  z.object({
-    title: xml.prop(z.string()),
-    year: xml.prop(z.number()),
-  }),
-  { tagname: "book" },
-) {
-  getTitle() {
-    return `Title: ${this.title}`;
-  }
+type XMLLike = string | XMLRoot;
+
+function prettifyXML(input: XMLLike) {
+  const root = typeof input === "string" ? XML.parse(input) : input;
+  return XML.stringify(root, { spaces: 2 });
 }
+
+/** Compares two XML values structurally, giving readable diffs on failure. */
+function expectXMLEqual(actual: XMLLike, expected: XMLLike) {
+  return expect(prettifyXML(actual)).toEqual(prettifyXML(expected));
+}
+
+// -----------------------------------------------------------------------
+// Fixtures
+// -----------------------------------------------------------------------
+
+const carXml =
+  '<car vin="VIN001"><make>Toyota</make><year>2020</year><doors>4</doors><engine type="petrol"><horsepower>150</horsepower></engine></car>';
+
+const sportCarXml =
+  '<sport-car vin="VIN004"><make>Ferrari</make><year>2023</year><doors>2</doors><engine type="petrol"><horsepower>710</horsepower></engine><top-speed>320</top-speed></sport-car>';
+
+const motorcycleXml =
+  '<motorcycle vin="VIN003"><make>Kawasaki</make><year>2019</year></motorcycle>';
+
+const motorcycleWithSidecarXml =
+  '<motorcycle vin="VIN005"><make>Ural</make><year>2018</year><sidecar>true</sidecar></motorcycle>';
+
+const fleetXml =
+  '<fleet name="Acme Fleet">' +
+  '<car vin="VIN001"><make>Toyota</make><year>2020</year><doors>4</doors><engine type="petrol"><horsepower>150</horsepower></engine></car>' +
+  '<car vin="VIN002"><make>Honda</make><year>2021</year><doors>2</doors><engine type="electric"><horsepower>204</horsepower></engine></car>' +
+  '<motorcycle vin="VIN003"><make>Kawasaki</make><year>2019</year></motorcycle>' +
+  "</fleet>";
+
+// -----------------------------------------------------------------------
+// xmlModel basics
+// -----------------------------------------------------------------------
 
 describe("xmlModel", () => {
   it("creates class instances", () => {
-    const book = Book.fromXML("<book><title>Dune</title><year>1965</year></book>");
-    expect(book instanceof Book).toBe(true);
+    const car = Car.fromXML(carXml);
+    expect(car).toBeInstanceOf(Car);
   });
 
-  it("exposes schema properties on instance", () => {
-    const book = Book.fromXML("<book><title>Dune</title><year>1965</year></book>");
-    expect(book.title).toBe("Dune");
-    expect(book.year).toBe(1965);
+  it("exposes element fields on instance", () => {
+    const car = Car.fromXML(carXml);
+    expect(car.make).toBe("Toyota");
+    expect(car.year).toBe(2020);
+    expect(car.doors).toBe(4);
   });
 
-  it("allows class methods on parsed instances", () => {
-    const book = Book.fromXML("<book><title>Dune</title><year>1965</year></book>");
-    expect(book.getTitle()).toBe("Title: Dune");
+  it("reads xml.attr fields from root element attributes", () => {
+    const car = Car.fromXML(carXml);
+    expect(car.vin).toBe("VIN001");
   });
 
-  it("static toXML works", () => {
-    const book = Book.fromXML("<book><title>Dune</title><year>1965</year></book>");
-    expect(Book.toXML(book).elements[0].name).toBe("book");
+  it("static toXML returns XMLRoot with correct root tag", () => {
+    const car = Car.fromXML(carXml);
+    expect(Car.toXML(car).elements[0].name).toBe("car");
   });
 
-  it("static toXMLString works", () => {
-    const book = Book.fromXML("<book><title>Dune</title><year>1965</year></book>");
-    const out = Book.toXMLString(book);
-    expect(out).toContain("<book>");
-    expect(out).toContain("<title>Dune</title>");
+  it("static toXMLString contains expected elements and attributes", () => {
+    const car = Car.fromXML(carXml);
+    const out = Car.toXMLString(car);
+    expect(out).toContain("<car");
+    expect(out).toContain('vin="VIN001"');
+    expect(out).toContain("<make>Toyota</make>");
   });
 
-  it("schema property is accessible", () => {
-    expect(Book.schema).toBeDefined();
+  it("static schema() is accessible", () => {
+    expect(Car.schema).toBeDefined();
   });
 
   it("constructor accepts plain data objects", () => {
-    const book = new Book({ title: "Foundation", year: 1951 });
-    expect(book instanceof Book).toBe(true);
-    expect(book.title).toBe("Foundation");
-    expect(book.year).toBe(1951);
+    const engine = new Engine({ type: "diesel", horsepower: 180 });
+    expect(engine).toBeInstanceOf(Engine);
+    expect(engine.type).toBe("diesel");
+    expect(engine.horsepower).toBe(180);
   });
 
-  it("subclass fromXML returns subclass instances", () => {
-    class SpecialBook extends Book {
-      isSpecial() {
-        return true;
-      }
-    }
-    const book = SpecialBook.fromXML("<book><title>Dune</title><year>1965</year></book>");
-    expect(book instanceof SpecialBook).toBe(true);
-    expect(book instanceof Book).toBe(true);
-    expect((book as any).isSpecial()).toBe(true);
-  });
-
-  it("two-step xml.model() + xmlModel() pattern still works", () => {
-    const Schema = xml.model(z.object({ title: xml.prop(z.string()) }), { tagname: "article" });
-    class Article extends xmlModel(Schema) {}
-    const a = Article.fromXML("<article><title>Hello</title></article>");
-    expect(a instanceof Article).toBe(true);
-    expect(a.title).toBe("Hello");
-    expect(Article.dataSchema).toBe(Schema);
+  it("two-step xml.model() + xmlModel() pattern works", () => {
+    const Schema = xml.model(z.object({ make: xml.prop(z.string()) }), { tagname: "vehicle" });
+    class SimpleVehicle extends xmlModel(Schema) {}
+    const v = SimpleVehicle.fromXML("<vehicle><make>Ford</make></vehicle>");
+    expect(v).toBeInstanceOf(SimpleVehicle);
+    expect(v.make).toBe("Ford");
+    expect(SimpleVehicle.dataSchema).toBe(Schema);
   });
 });
 
@@ -86,76 +113,181 @@ describe("xmlModel", () => {
 // Composition — nested classes, attributes, inline arrays
 // -----------------------------------------------------------------------
 
-class Author extends xmlModel(
-  z.object({
-    firstName: xml.prop(z.string()),
-    lastName: xml.prop(z.string()),
-  }),
-  { tagname: "author" },
-) {
-  fullName() {
-    return `${this.firstName} ${this.lastName}`;
-  }
-}
-
-class Chapter extends xmlModel(
-  z.object({
-    number: xml.attr(z.number(), { name: "n" }),
-    title: xml.prop(z.string()),
-  }),
-  { tagname: "chapter" },
-) {}
-
-class ComposedBook extends xmlModel(
-  z.object({
-    isbn: xml.attr(z.string(), { name: "isbn" }),
-    title: xml.prop(z.string()),
-    author: xml.prop(Author),
-    chapters: xml.prop(z.array(Chapter.schema()), { inline: true }),
-  }),
-  { tagname: "book" },
-) {
-  chapterCount() {
-    return this.chapters.length;
-  }
-}
-
-class Library extends xmlModel(
-  z.object({
-    name: xml.attr(z.string(), { name: "name" }),
-    books: xml.prop(z.array(ComposedBook.schema()), { inline: true }),
-  }),
-  { tagname: "library" },
-) {}
-
-const libraryXml = `<library name="City Library"><book isbn="978-0-7432-7356-5"><title>The Road</title><author><first-name>Cormac</first-name><last-name>McCarthy</last-name></author><chapter n="1"><title>The Beginning</title></chapter><chapter n="2"><title>The Journey</title></chapter></book><book isbn="978-0-14-028329-7"><title>Blood Meridian</title><author><first-name>Cormac</first-name><last-name>McCarthy</last-name></author><chapter n="1"><title>The Kid</title></chapter></book></library>`;
-
 describe("composition", () => {
-  it("parses nested classes and attributes", () => {
-    const lib = Library.fromXML(libraryXml);
-    expect(lib.name).toBe("City Library");
-    expect(lib.books).toHaveLength(2);
-    expect(lib.books[0].isbn).toBe("978-0-7432-7356-5");
-    expect(lib.books[0].title).toBe("The Road");
-    expect(lib.books[0].author.firstName).toBe("Cormac");
-    expect(lib.books[0].chapters[0].number).toBe(1);
+  it("parses root attributes", () => {
+    const fleet = Fleet.fromXML(fleetXml);
+    expect(fleet.name).toBe("Acme Fleet");
+  });
+
+  it("parses inline arrays of nested class instances", () => {
+    const fleet = Fleet.fromXML(fleetXml);
+    expect(fleet.cars).toHaveLength(2);
+    expect(fleet.motorcycles).toHaveLength(1);
+  });
+
+  it("parses nested class fields", () => {
+    const fleet = Fleet.fromXML(fleetXml);
+    expect(fleet.cars[0].vin).toBe("VIN001");
+    expect(fleet.cars[0].make).toBe("Toyota");
+    expect(fleet.cars[0].engine.horsepower).toBe(150);
+    expect(fleet.cars[0].engine.type).toBe("petrol");
   });
 
   it("instantiates nested classes correctly", () => {
-    const lib = Library.fromXML(libraryXml);
-    expect(lib.books[0]).toBeInstanceOf(ComposedBook);
-    expect(lib.books[0].author).toBeInstanceOf(Author);
-    expect(lib.books[0].chapters[0]).toBeInstanceOf(Chapter);
+    const fleet = Fleet.fromXML(fleetXml);
+    expect(fleet.cars[0]).toBeInstanceOf(Car);
+    expect(fleet.cars[0].engine).toBeInstanceOf(Engine);
+    expect(fleet.motorcycles[0]).toBeInstanceOf(Motorcycle);
   });
 
-  it("class methods work on nested instances", () => {
-    const lib = Library.fromXML(libraryXml);
-    expect(lib.books[0].author.fullName()).toBe("Cormac McCarthy");
-    expect(lib.books[0].chapterCount()).toBe(2);
+  it("class methods work on parsed instances", () => {
+    const fleet = Fleet.fromXML(fleetXml);
+    expect(fleet.totalVehicles()).toBe(3);
   });
 
   it("round-trips to identical XML", () => {
-    const lib = Library.fromXML(libraryXml);
-    expect(XML.stringify(xmlCodec(Library.dataSchema).toXML(lib))).toBe(libraryXml);
+    const fleet = Fleet.fromXML(fleetXml);
+    expectXMLEqual(Fleet.toXML(fleet), fleetXml);
+  });
+});
+
+// -----------------------------------------------------------------------
+// Non-inline (wrapped) arrays
+// -----------------------------------------------------------------------
+
+describe("non-inline arrays", () => {
+  // Items are nested inside a <models> container element, not direct siblings of <showroom>.
+  const showroomXml =
+    '<showroom name="Acme Dealers">' +
+    "<models><model>Corolla</model><model>Civic</model><model>Mustang</model></models>" +
+    "</showroom>";
+
+  it("parses items from the container element", () => {
+    const showroom = Showroom.fromXML(showroomXml);
+    expect(showroom.name).toBe("Acme Dealers");
+    expect(showroom.models).toEqual(["Corolla", "Civic", "Mustang"]);
+  });
+
+  it("serializes items back inside the container element", () => {
+    const showroom = Showroom.fromXML(showroomXml);
+    const out = Showroom.toXMLString(showroom);
+    expect(out).toContain("<models>");
+    expect(out).toContain("Corolla");
+    expect(out).toContain("Civic");
+  });
+
+  it("round-trips data correctly", () => {
+    const showroom = Showroom.fromXML(showroomXml);
+    const reparsed = Showroom.fromXML(Showroom.toXMLString(showroom));
+    expect(reparsed.name).toBe("Acme Dealers");
+    expect(reparsed.models).toEqual(["Corolla", "Civic", "Mustang"]);
+  });
+});
+
+// -----------------------------------------------------------------------
+// Optional fields
+// -----------------------------------------------------------------------
+
+describe("optional fields", () => {
+  it("parses optional boolean field when present", () => {
+    const moto = Motorcycle.fromXML(motorcycleWithSidecarXml);
+    expect(moto.sidecar).toBe(true);
+  });
+
+  it("parses optional field as undefined when absent", () => {
+    const moto = Motorcycle.fromXML(motorcycleXml);
+    expect(moto.sidecar).toBeUndefined();
+  });
+
+  it("toXMLString omits undefined optional field", () => {
+    const moto = Motorcycle.fromXML(motorcycleXml);
+    expect(Motorcycle.toXMLString(moto)).not.toContain("sidecar");
+  });
+});
+
+// -----------------------------------------------------------------------
+// Class extension via .extend()
+// -----------------------------------------------------------------------
+
+describe("class extension via .extend()", () => {
+  it("Car inherits Vehicle fields and methods", () => {
+    const car = Car.fromXML(carXml);
+    expect(car.vin).toBe("VIN001"); // Vehicle attr
+    expect(car.make).toBe("Toyota"); // Vehicle prop
+    expect(car.doors).toBe(4); // Car prop
+    expect(car.label()).toBe("2020 Toyota"); // Vehicle method
+  });
+
+  it("Car is instanceof Vehicle", () => {
+    const car = Car.fromXML(carXml);
+    expect(car).toBeInstanceOf(Car);
+    expect(car).toBeInstanceOf(Vehicle);
+  });
+
+  it("SportCar chains .extend() across two levels", () => {
+    const sc = SportCar.fromXML(sportCarXml);
+    expect(sc.make).toBe("Ferrari"); // Vehicle prop
+    expect(sc.doors).toBe(2); // Car prop
+    expect(sc.topSpeed).toBe(320); // SportCar prop
+    expect(sc.label()).toBe("2023 Ferrari"); // Vehicle method
+  });
+
+  it("SportCar is instanceof Car and Vehicle", () => {
+    const sc = SportCar.fromXML(sportCarXml);
+    expect(sc).toBeInstanceOf(SportCar);
+    expect(sc).toBeInstanceOf(Car);
+    expect(sc).toBeInstanceOf(Vehicle);
+  });
+
+  it("inherited xml.attr() and xml.prop() metadata is preserved", () => {
+    const car = Car.fromXML(carXml);
+    const out = Car.toXMLString(car);
+    expect(out).toContain('vin="VIN001"');
+    expect(out).toContain("<make>Toyota</make>");
+  });
+});
+
+// -----------------------------------------------------------------------
+// Fresh class pattern — xmlModel(Parent.dataSchema.extend(...))
+// -----------------------------------------------------------------------
+
+describe("xmlModel(Parent.dataSchema.extend(...)) — fresh class pattern", () => {
+  it("parses inherited and new fields", () => {
+    const car = CarStandalone.fromXML(carXml);
+    expect(car.make).toBe("Toyota");
+    expect(car.doors).toBe(4);
+  });
+
+  it("is NOT instanceof Vehicle", () => {
+    const car = CarStandalone.fromXML(carXml);
+    expect(car).not.toBeInstanceOf(Vehicle);
+  });
+
+  it("does not have Vehicle methods", () => {
+    const car = CarStandalone.fromXML(carXml);
+    // @ts-expect-error — label() is not available on CarStandalone
+    expect(typeof car.label).toBe("undefined");
+  });
+});
+
+// -----------------------------------------------------------------------
+// Direct JS class inheritance (extends a model class, no new schema fields)
+// -----------------------------------------------------------------------
+
+describe("direct JS class inheritance", () => {
+  it("subclass fromXML returns subclass instances and inherits all methods", () => {
+    class ElectricCar extends Car {
+      isElectric() {
+        return this.engine.type === "electric";
+      }
+    }
+    const electricCarXml =
+      '<car vin="VIN002"><make>Honda</make><year>2021</year><doors>2</doors><engine type="electric"><horsepower>204</horsepower></engine></car>';
+    const car = ElectricCar.fromXML(electricCarXml);
+    expect(car).toBeInstanceOf(ElectricCar);
+    expect(car).toBeInstanceOf(Car);
+    expect(car).toBeInstanceOf(Vehicle);
+    expect(car.isElectric()).toBe(true);
+    expect(car.label()).toBe("2021 Honda"); // Vehicle method, inherited through chain
   });
 });
