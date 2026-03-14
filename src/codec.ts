@@ -10,6 +10,7 @@ import {
   resolveMatchFn,
   type XMLPropMeta,
 } from "./schema-meta";
+import type { Options } from "xml-js";
 
 /**
  * Non-enumerable Symbol attached to parsed objects.
@@ -30,7 +31,7 @@ type OrderEntry = string | XMLElement;
 export interface XMLCodec<T> {
   fromXML(xml: string | XMLRoot): T;
   toXML(value: T): XMLRoot;
-  toXMLString(value: T): string;
+  toXMLString(value: T, options?: Options.JS2XML): string;
 }
 
 // Cache codecs by schema instance to avoid rebuilding
@@ -50,8 +51,8 @@ function buildCodec<S extends z.ZodObject<any>>(schema: S): XMLCodec<z.infer<S>>
   return {
     fromXML: buildFromXML(schema),
     toXML: buildToXML(schema),
-    toXMLString(value) {
-      return XML.stringify(this.toXML(value));
+    toXMLString(value, options?: Options.JS2XML) {
+      return XML.stringify(this.toXML(value), options);
     },
   };
 }
@@ -207,6 +208,12 @@ function convertFromXML(schema: z.ZodType, elements: XMLElement[], meta: XMLProp
     }
   }
 
+  if (schema instanceof z.ZodPipe) {
+    const inner = schema.def.in as z.ZodObject<any>;
+    const el = elements[0];
+    return _fromInner(inner, el?.elements ?? [], el?.attributes);
+  }
+
   if (schema instanceof z.ZodObject) {
     return _fromInner(schema, elements[0]?.elements ?? [], elements[0]?.attributes);
   }
@@ -233,6 +240,11 @@ function convertFromXML(schema: z.ZodType, elements: XMLElement[], meta: XMLProp
 function convertSingleFromXML(schema: z.ZodType, el: XMLElement): unknown {
   if (schema instanceof z.ZodLazy) {
     return convertSingleFromXML(schema.def.getter(), el);
+  }
+
+  if (schema instanceof z.ZodPipe) {
+    const inner = schema.def.in as z.ZodObject<any>;
+    return _fromInner(inner, el.elements ?? [], el.attributes);
   }
 
   if (schema instanceof z.ZodObject) {
@@ -366,6 +378,10 @@ function convertToXML(
     }
   }
 
+  if (schema instanceof z.ZodPipe) {
+    return convertToXML(schema.def.in as z.ZodObject<any>, value, tagname, meta);
+  }
+
   if (schema instanceof z.ZodObject) {
     const nested = xmlCodec(schema).toXML(value as any);
     // Rename the root element if schema has a tagname
@@ -395,6 +411,10 @@ function convertToXML(
 function convertSingleToXML(schema: z.ZodType, value: unknown, tagname: string): XMLElement[] {
   if (schema instanceof z.ZodLazy) {
     return convertSingleToXML(schema.def.getter(), value, tagname);
+  }
+
+  if (schema instanceof z.ZodPipe) {
+    return convertSingleToXML(schema.def.in as z.ZodObject<any>, value, tagname);
   }
 
   if (schema instanceof z.ZodObject) {

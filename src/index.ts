@@ -6,3 +6,4 @@ export type { XMLPropMeta, XMLAttrMeta, XMLRootMeta } from "./schema-meta";
 export type { XMLElement, XMLRoot } from "./types";
 export { XMLValidationError } from "./errors";
 export { z } from "zod";
+export type { Options as XMLOptions } from "xml-js";

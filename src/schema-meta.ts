@@ -23,12 +23,44 @@ const propMetaMap = new WeakMap<z.ZodType, XMLPropMeta>();
 const attrMetaMap = new WeakMap<z.ZodType, XMLAttrMeta>();
 const rootMetaMap = new WeakMap<z.ZodType, XMLRootMeta>();
 
+type AnyXmlModelClass = {
+  dataSchema: z.ZodObject<any>;
+  schema(): z.ZodPipe<any, any>;
+  new (data: any): any;
+};
+
+function isXmlModelClass(v: unknown): v is AnyXmlModelClass {
+  return (
+    typeof v === "function" &&
+    v !== null &&
+    "dataSchema" in v &&
+    (v as any).dataSchema instanceof z.ZodObject
+  );
+}
+
 /**
  * Attaches XMLPropMeta to a field schema (marks it as a child element field).
+ * Also accepts an xmlModel class directly → calls Class.schema() to extract the ZodPipe.
  */
-function prop<S extends z.ZodType>(schema: S, meta: XMLPropMeta = {}): S {
-  propMetaMap.set(schema, meta);
-  return schema;
+function prop<C extends AnyXmlModelClass>(
+  cls: C,
+  meta?: XMLPropMeta,
+): z.ZodPipe<
+  C["dataSchema"],
+  z.ZodTransform<
+    z.infer<C["dataSchema"]>,
+    C extends abstract new (...args: any) => infer I ? I : never
+  >
+>;
+function prop<S extends z.ZodType>(schema: S, meta?: XMLPropMeta): S;
+function prop(schemaOrClass: z.ZodType | AnyXmlModelClass, meta: XMLPropMeta = {}): z.ZodType {
+  if (isXmlModelClass(schemaOrClass)) {
+    const pipeSchema = schemaOrClass.schema();
+    propMetaMap.set(pipeSchema, meta);
+    return pipeSchema;
+  }
+  propMetaMap.set(schemaOrClass as z.ZodType, meta);
+  return schemaOrClass as z.ZodType;
 }
 
 /**
@@ -90,8 +122,10 @@ export function getPropTagname(fieldName: string, schema: z.ZodType): string {
 /**
  * Derives the XML tag name for a root element.
  * Returns the tagname from meta, or empty string if not set.
+ * Unwraps ZodPipe to find the inner ZodObject's metadata.
  */
 export function getRootTagname(schema: z.ZodType): string {
+  if (schema instanceof z.ZodPipe) return getRootTagname(schema.def.in);
   return getXMLRootMeta(schema).tagname ?? "";
 }
 

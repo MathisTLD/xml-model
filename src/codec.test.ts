@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import { xmlCodec } from "./codec";
 import { xml } from "./schema-meta";
+import { xmlModel } from "./model";
 import XML from "./xml";
 
 // -----------------------------------------------------------------------
@@ -368,5 +369,43 @@ describe("codec caching", () => {
     const c1 = xmlCodec(Schema);
     const c2 = xmlCodec(Schema);
     expect(c1).toBe(c2);
+  });
+});
+
+// -----------------------------------------------------------------------
+// toXMLString options
+// -----------------------------------------------------------------------
+
+describe("toXMLString options", () => {
+  const Schema = xml.model(
+    z.object({
+      title: xml.prop(z.string()),
+      body: xml.prop(z.string()),
+    }),
+    { tagname: "doc" },
+  );
+
+  it("produces compact output by default", () => {
+    const codec = xmlCodec(Schema);
+    const parsed = codec.fromXML("<doc><title>T</title><body>B</body></doc>");
+    const out = codec.toXMLString(parsed);
+    expect(out).not.toContain("\n");
+  });
+
+  it("indents output when spaces option is provided", () => {
+    const codec = xmlCodec(Schema);
+    const parsed = codec.fromXML("<doc><title>T</title><body>B</body></doc>");
+    const out = codec.toXMLString(parsed, { spaces: 2 });
+    expect(out).toContain("\n");
+    expect(out).toContain("  <title>");
+  });
+
+  it("toXMLString on xmlModel class accepts options", () => {
+    const DocSchema = xml.model(z.object({ title: xml.prop(z.string()) }), { tagname: "doc" });
+    class Doc extends xmlModel(DocSchema) {}
+    const doc = Doc.fromXML("<doc><title>Hello</title></doc>");
+    const out = Doc.toXMLString(doc, { spaces: 4 });
+    expect(out).toContain("\n");
+    expect(out).toContain("    <title>");
   });
 });
