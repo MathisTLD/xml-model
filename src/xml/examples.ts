@@ -13,7 +13,7 @@ export class Engine extends xmlModel(
     /** Fuel type stored as an XML attribute: `<engine type="petrol">` */
     type: xml.attr(z.string(), { name: "type" }),
     /** Power output stored as a child element: `<horsepower>150</horsepower>` */
-    horsepower: xml.prop(z.number()),
+    horsepower: z.number(),
   }),
   { tagname: "engine" },
 ) {}
@@ -30,9 +30,9 @@ export class Vehicle extends xmlModel(
     /** Unique identifier stored as a root XML attribute: `<vehicle vin="...">` */
     vin: xml.attr(z.string(), { name: "vin" }),
     /** Manufacturer name stored as a child element: `<make>Toyota</make>` */
-    make: xml.prop(z.string()),
+    make: z.string(),
     /** Production year stored as a child element: `<year>2020</year>` */
-    year: xml.prop(z.number()),
+    year: z.number(),
   }),
   { tagname: "vehicle" },
 ) {
@@ -55,14 +55,14 @@ export class Vehicle extends xmlModel(
 export class Car extends Vehicle.extend(
   {
     /** Number of doors: `<doors>4</doors>` */
-    doors: xml.prop(z.number()),
+    doors: z.number(),
     /**
      * Nested engine. Passing an xmlModel class to `xml.prop()` embeds it as a
      * child element and parses it into the correct class instance automatically.
      */
-    engine: xml.prop(Engine),
+    engine: Engine.schema(),
   },
-  xml.model({ tagname: "car" }),
+  xml.root({ tagname: "car" }),
 ) {}
 // #endregion car
 
@@ -74,9 +74,9 @@ export class Car extends Vehicle.extend(
 export class SportCar extends Car.extend(
   {
     /** Top speed in km/h: `<top-speed>320</top-speed>` (camelCase → kebab-case) */
-    topSpeed: xml.prop(z.number()),
+    topSpeed: z.number(),
   },
-  xml.model({ tagname: "sport-car" }),
+  xml.root({ tagname: "sport-car" }),
 ) {}
 // #endregion sport-car
 
@@ -89,9 +89,9 @@ export class SportCar extends Car.extend(
 export class Motorcycle extends Vehicle.extend(
   {
     /** Whether a sidecar is attached. Omitted from XML when `undefined`. */
-    sidecar: xml.prop(z.optional(z.boolean())),
+    sidecar: z.boolean().optional(),
   },
-  xml.model({ tagname: "motorcycle" }),
+  xml.root({ tagname: "motorcycle" }),
 ) {}
 // #endregion motorcycle
 
@@ -109,9 +109,17 @@ export class Fleet extends xmlModel(
      * Inline list of cars. Each `<car>` is a direct child of `<fleet>`.
      * `Car.schema()` returns a ZodPipe that also instantiates `Car` objects.
      */
-    cars: xml.prop(z.array(Car.schema()), { inline: true }),
+    cars: xml.prop(z.array(Car.schema()), {
+      inline: true,
+      // FIXME: should be required for inline arrays
+      tagname: "car",
+    }),
     /** Inline list of motorcycles. Each `<motorcycle>` is a direct child of `<fleet>`. */
-    motorcycles: xml.prop(z.array(Motorcycle.schema()), { inline: true }),
+    motorcycles: xml.prop(z.array(Motorcycle.schema()), {
+      inline: true,
+      // FIXME: should be required for inline arrays
+      tagname: "motorcycle",
+    }),
   }),
   { tagname: "fleet" },
 ) {
@@ -150,7 +158,7 @@ export class Showroom extends xmlModel(
      * wrapped inside a single `<models>` container element; the tag name of each
      * individual item is not significant during parsing.
      */
-    models: xml.prop(z.array(z.string())),
+    models: z.array(xml.root(z.string(), { tagname: "model" })),
   }),
   { tagname: "showroom" },
 ) {}
@@ -168,8 +176,8 @@ export class Showroom extends xmlModel(
  */
 export class CarStandalone extends xmlModel(
   Vehicle.dataSchema.extend({
-    doors: xml.prop(z.number()),
-    engine: xml.prop(Engine),
+    doors: z.number(),
+    engine: Engine.schema(),
   }),
   { tagname: "car" },
 ) {}

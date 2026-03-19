@@ -12,7 +12,7 @@ No special TypeScript compiler plugins or `tsconfig.json` changes are required.
 
 ## First model
 
-Define a class by extending the result of `xmlModel()`. Pass a Zod schema with fields annotated using `xml.prop()` (child elements) and `xml.attr()` (XML attributes), and a `{ tagname }` option for the root element name.
+Define a class by extending the result of `xmlModel()`. Pass a Zod schema where fields are plain Zod types by default (child elements), `xml.attr()` for XML attributes, or `xml.prop()` when you need to customise a field's tagname, inline mode, or matching. Supply a `{ tagname }` option for the root element name.
 
 <<< @/../src/xml/examples.ts#engine
 

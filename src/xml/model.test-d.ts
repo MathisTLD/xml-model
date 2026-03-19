@@ -52,8 +52,8 @@ describe("class extension via .extend()", () => {
 
   test("inline extend without explicit class keeps types", () => {
     class TruckBase extends Vehicle.extend(
-      { payload: xml.prop(z.number()) },
-      xml.model({ tagname: "truck" }),
+      { payload: z.number() },
+      xml.root({ tagname: "truck" }),
     ) {}
     const truck = TruckBase.fromXML("");
     expectTypeOf(truck.make).toEqualTypeOf<string>(); // Vehicle

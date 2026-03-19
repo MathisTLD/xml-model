@@ -16,7 +16,7 @@ npm install xml-model zod
 
 ## What is xml-model?
 
-xml-model lets you define TypeScript classes that map directly to XML documents using [Zod](https://zod.dev) schemas. Annotate fields with `xml.prop()` or `xml.attr()`, then parse or serialise with a single method call.
+xml-model lets you define TypeScript classes that map directly to XML documents using [Zod](https://zod.dev) schemas. Annotate fields with `xml.attr()` for XML attributes, or use `xml.prop()` when you need to customise a child element's tagname, inline mode, or matching — plain Zod schemas work as-is for regular child elements. Then parse or serialise with a single method call.
 
 ```ts
 import { z } from "zod";
@@ -25,8 +25,8 @@ import { xmlModel, xml } from "xml-model";
 class Book extends xmlModel(
   z.object({
     isbn: xml.attr(z.string(), { name: "isbn" }),
-    title: xml.prop(z.string()),
-    year: xml.prop(z.number()),
+    title: z.string(),
+    year: z.number(),
   }),
   { tagname: "book" },
 ) {

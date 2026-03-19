@@ -1,19 +1,21 @@
 # Properties
 
-Fields in a model schema are annotated with `xml.prop()` (child elements) or `xml.attr()` (XML attributes). Both helpers attach XML metadata to the Zod schema via Zod v4's `.meta()` API.
+Fields in a model schema are plain Zod types by default (child elements), `xml.attr()` for XML attributes, or `xml.prop()` when you need to customise a child element. All helpers attach XML metadata to the Zod schema via Zod v4's `.meta()` API.
 
-## Child elements — `xml.prop()`
+## Child elements
 
-`xml.prop(schema, options?)` marks a field as a child element. The field name is converted to kebab-case for the tag name by default.
+Every field that is not annotated with `xml.attr()` is encoded as a child element. The field name is converted to kebab-case for the tag name by default — no annotation required.
 
 ```ts
 z.object({
-  title: xml.prop(z.string()), // <title>…</title>
-  publishedAt: xml.prop(z.number()), // <published-at>…</published-at>
+  title: z.string(), // <title>…</title>
+  publishedAt: z.number(), // <published-at>…</published-at>
 });
 ```
 
-### Options
+Use `xml.prop(schema, options)` only when you need to customise the element — see options below.
+
+### `xml.prop()` options
 
 | Option    | Type                                  | Description                                                                                            |
 | --------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------ |
@@ -129,7 +131,7 @@ All `<model>` items live inside the `<models>` container. The tag name of indivi
 ```ts
 z.object({
   id: z.string().meta({ xml: { attr: "id" } }), // equivalent to xml.attr(z.string(), { name: "id" })
-  name: z.string().meta({ xml: {} }), // equivalent to xml.prop(z.string())
+  name: z.string().meta({ xml: {} }), // same as bare z.string() — no-op annotation
   hidden: z.string().meta({ xml: { ignore: true } }), // equivalent to xml.prop(z.string(), { ignore: true })
 });
 ```

@@ -1,443 +1,551 @@
 import { z } from "zod";
-import type { XMLAttributes, XMLElement, XMLRoot } from "./types";
-import XML from ".";
-import { XMLValidationError } from "./errors";
-import {
-  getXMLAttrMeta,
-  getXMLMeta,
-  getPropTagname,
-  getRootTagname,
-  resolveMatchFn,
-  type XMLMeta,
-} from "./schema-meta";
-import type { Options } from "xml-js";
+import { XML, type XMLElement } from "./xml-js";
+import { getUserOptions } from "./schema-meta";
+import { kebabCase } from "@/util/kebab-case";
+import { isZodType } from "@/util/zod";
+
+// FIXME: these two assertion should be in ./xml-js
+export function assertSingleElement(xml: XMLElement[]): asserts xml is [XMLElement] {
+  if (xml.length !== 1) throw new Error(`Expected single XML element, got ${xml.length}`);
+}
+
+export function assertSingleRoot(
+  xml: XMLElement[],
+): asserts xml is [XMLElement & { elements: XMLElement[] }] {
+  assertSingleElement(xml);
+  if (!Array.isArray(xml[0].elements)) throw new Error(`Expected element with children list`);
+}
+
+// a key for both input and output of schema
+// FIXME: this might not work depending on transforms (we should disallow transforms that remove properties)
+type PropKey<S extends z.ZodObject> = keyof z.input<S> & keyof z.output<S> & string;
+
+export interface CodecOptions<S extends z.ZodType> {
+  schema: S;
+  tagname(ctx: RootEncodingContext<S>): string;
+  decode(ctx: RootDecodingContext<S>): z.input<S>;
+  encode(ctx: RootEncodingContext<S>): XMLElement;
+  // property options
+  propertyTagname: (ctx: { name: string; options: CodecOptions<z.ZodType> }) => string;
+  /** if true, XML representation is not contained in a single XML tag */
+  inlineProperty: boolean;
+  propertyMatch: (
+    el: XMLElement,
+    ctx: { name: string; tagname: string; options: CodecOptions<z.ZodType> },
+  ) => boolean;
+  decodeAsProperty(ctx: PropertyDecodingContext): void;
+  encodeAsProperty(ctx: PropertyEncodingContext): void;
+}
 
 /**
- * Non-enumerable Symbol attached to parsed objects.
- * Stores the original document sequence as (string | XMLElement)[]:
- *   - string    → field name (known field, first occurrence sets position)
- *   - XMLElement → unknown element, stored verbatim for passthrough
+ * Stored in schema meta under the single `@@xml-model` key.
+ * All fields are optional; `normalizeCodecOptions` fills in defaults.
+ * `tagname`/`propertyTagname` accept a string (normalized to a function).
+ * `propertyMatch` accepts a RegExp (normalized to an element-name test).
  */
-export const FIELD_ORDER = Symbol("xml-model.fieldOrder");
+export type UserCodecOptions<S extends z.ZodType = z.ZodType> = {
+  tagname?: string | CodecOptions<S>["tagname"];
+  decode?: CodecOptions<S>["decode"];
+  encode?: CodecOptions<S>["encode"];
+  propertyTagname?: string | CodecOptions<S>["propertyTagname"];
+  inlineProperty?: boolean;
+  propertyMatch?: RegExp | CodecOptions<S>["propertyMatch"];
+  decodeAsProperty?: CodecOptions<S>["decodeAsProperty"];
+  encodeAsProperty?: CodecOptions<S>["encodeAsProperty"];
+};
 
-/**
- * Non-enumerable Symbol storing the original root element's attributes,
- * so they survive a fromXML → toXML round-trip even if no schema field maps to them.
- */
-export const ROOT_ATTRS = Symbol("xml-model.rootAttrs");
+export interface RootDecodingContext<S extends z.ZodType> {
+  options: CodecOptions<S>;
+  xml: XMLElement | null;
+}
+export interface RootEncodingContext<S extends z.ZodType> {
+  options: CodecOptions<S>;
+  data: z.output<S>;
+}
+
+export interface PropertyDecodingContext<
+  S extends z.ZodObject = z.ZodObject,
+  K extends PropKey<S> = PropKey<S>,
+> extends RootDecodingContext<S> {
+  property: {
+    name: K;
+    options: CodecOptions<z.ZodType>;
+    tagname: string;
+    xml: XMLElement | null;
+  };
+  /** an object to be filled with input data */
+  result: Partial<z.input<S>>;
+}
+
+export interface PropertyEncodingContext<
+  S extends z.ZodObject = z.ZodObject,
+  K extends PropKey<S> = PropKey<S>,
+> extends RootEncodingContext<S> {
+  property: {
+    name: K;
+    options: CodecOptions<z.ZodType>;
+    tagname: string;
+    value: z.output<S>[K];
+  };
+  result: XMLElement;
+}
+
+function normalizeCodecOptions<S extends z.ZodType>(
+  schema: S,
+  options: UserCodecOptions<S> = {},
+): CodecOptions<S> {
+  let _defaultOptions: CodecOptions<S>;
+  const defaultOptions = () => {
+    // FIXME: this could cause infinite recursion
+    if (!_defaultOptions) {
+      _defaultOptions = resolveDefault(schema);
+      if (!_defaultOptions) {
+        // TODO: dedicated exception
+        throw new Error(
+          `Failed to resolve default codec options for schema of type ${schema.type}`,
+        );
+      }
+    }
+    return _defaultOptions;
+  };
+
+  const userTagname = options.tagname;
+  const tagname: CodecOptions<S>["tagname"] =
+    typeof userTagname === "string"
+      ? () => userTagname
+      : typeof userTagname === "function"
+        ? userTagname
+        : () => {
+            // TODO: allow customizable default behavior
+            throw new Error("tagname is not defined");
+          };
+
+  const userPropTagname = options.propertyTagname;
+  const propertyTagname: CodecOptions<S>["propertyTagname"] =
+    typeof userPropTagname === "string"
+      ? () => userPropTagname
+      : typeof userPropTagname === "function"
+        ? userPropTagname
+        : (ctx) => kebabCase(ctx.name);
+
+  const inlineProperty = options.inlineProperty ?? false;
+
+  const userMatch = options.propertyMatch;
+  const propertyMatch: CodecOptions<S>["propertyMatch"] =
+    userMatch instanceof RegExp
+      ? (el) => (userMatch as RegExp).test(el.name)
+      : typeof userMatch === "function"
+        ? userMatch
+        : (el, ctx) => el.name === ctx.tagname;
+
+  const decode: CodecOptions<S>["decode"] = options.decode ?? defaultOptions().decode;
+  const encode: CodecOptions<S>["encode"] = options.encode ?? defaultOptions().encode;
+
+  // Self-referential — closures capture `result` so the default
+  // decodeAsProperty/encodeAsProperty can call the schema's own decode/encode.
+  const result: CodecOptions<S> = {
+    schema,
+    tagname,
+    decode,
+    encode,
+    propertyTagname,
+    inlineProperty,
+    propertyMatch,
+    decodeAsProperty:
+      options.decodeAsProperty ??
+      function (ctx) {
+        const res = result.decode({ options: result, xml: ctx.property.xml });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (ctx.result as any)[ctx.property.name as string] = res;
+      },
+    encodeAsProperty:
+      options.encodeAsProperty ??
+      function (ctx) {
+        const { property } = ctx;
+        // Inject the property tagname so result.encode doesn't throw on schemas
+        // that have no root tagname configured (field schemas don't need one).
+        const optsWithTagname: CodecOptions<S> = { ...result, tagname: () => property.tagname };
+        const res = result.encode({
+          options: optsWithTagname,
+          // FIXME: we should not rely on type casting
+          data: property.value as unknown as z.output<S>,
+        });
+        if (XML.isEmpty(res)) {
+          // Any {} anywhere in the elements array causes js2xml to drop ALL children when it appears at the end.
+          // then we need to avoid ctx.result.elements to contain any {}
+          return;
+        }
+        if (property.options.inlineProperty) {
+          // unwrap the result
+          ctx.result.elements.push(...res.elements);
+        } else {
+          ctx.result.elements.push(res);
+        }
+      },
+  };
+  return result;
+}
+
+const cache = new Map<z.ZodType, CodecOptions<z.ZodType>>();
+
+function resolveCodecOptions<S extends z.ZodType>(schema: S): CodecOptions<S> {
+  const cached = cache.get(schema);
+  if (cached) return cached as CodecOptions<S>;
+
+  const userOpts = getUserOptions(schema);
+  const options = normalizeCodecOptions(schema, userOpts);
+  cache.set(schema, options);
+  return options;
+}
 
 type OrderEntry = string | XMLElement;
 
-export interface XMLCodec<T> {
-  fromXML(xml: string | XMLRoot): T;
-  toXML(value: T): XMLRoot;
-  toXMLString(value: T, options?: Options.JS2XML): string;
+export interface XMLState {
+  /** Preserves element ordering and unknown elements across a decode → encode round-trip. */
+  fieldOrder: OrderEntry[];
 }
-
-// Cache codecs by schema instance to avoid rebuilding
-const codecCache = new WeakMap<z.core.$ZodType, XMLCodec<any>>();
 
 /**
- * Returns a cached codec for the given ZodObject schema.
+ * Non-enumerable Symbol attached to decoded data objects (and forwarded to model instances).
+ * Groups all XML codec round-trip state under a single key.
  */
-export function xmlCodec<S extends z.ZodObject<any>>(schema: S): XMLCodec<z.infer<S>> {
-  if (codecCache.has(schema)) return codecCache.get(schema)!;
-  const codec = buildCodec(schema);
-  codecCache.set(schema, codec);
-  return codec;
-}
+export const XML_STATE = Symbol("xml-model.state");
 
-function buildCodec<S extends z.ZodObject<any>>(schema: S): XMLCodec<z.infer<S>> {
-  return {
-    fromXML: buildFromXML(schema),
-    toXML: buildToXML(schema),
-    toXMLString(value, options?: Options.JS2XML) {
-      return XML.stringify(this.toXML(value), options);
-    },
-  };
-}
-
-function coerceAttrValue(raw: string, schema: z.core.$ZodType): unknown {
-  if (schema instanceof z.ZodNumber) return Number(raw);
-  if (schema instanceof z.ZodBoolean) return raw === "true";
-  if (schema instanceof z.ZodOptional) return coerceAttrValue(raw, schema.def.innerType);
-  return raw;
-}
-
-// Internal fromXML that skips root unwrapping — used for nested object schemas
-function _fromInner<S extends z.ZodObject<any>>(
+function resolvePropertiesConversionOptions<S extends z.ZodObject<any>>(
   schema: S,
-  innerEls: XMLElement[],
-  rootAttributes?: XMLAttributes,
-): z.infer<S> {
-  const shape = schema.def.shape as Record<string, z.core.$ZodType>;
-
-  // Build matcher list for non-ignored, non-attr fields
-  const matchers: Array<{ fieldName: string; test: (el: XMLElement) => boolean }> = [];
-  for (const [fieldName, fieldSchema] of Object.entries(shape)) {
-    const meta = getXMLMeta(fieldSchema);
-    if (meta.ignore) continue;
-    const attrMeta = getXMLAttrMeta(fieldSchema);
-    if (attrMeta) continue; // attribute fields don't match elements
-    const tagname = getPropTagname(fieldName, fieldSchema);
-    const test = resolveMatchFn(meta.match, tagname);
-    matchers.push({ fieldName, test });
+): { [K in PropKey<S>]: CodecOptions<z.ZodType> } {
+  const shape = schema.def.shape as Record<string, z.ZodType>;
+  const options = {};
+  for (const [prop, fieldSchema] of Object.entries(shape)) {
+    options[prop] = resolveCodecOptions(fieldSchema);
   }
+  // FIXME: don't use any
+  return options as any;
+}
 
-  const raw: Record<string, XMLElement[]> = {};
-  const sequence: OrderEntry[] = [];
-  const seenFields = new Set<string>();
+export function decode<S extends z.ZodType>(schema: S, xml: XMLElement): z.input<S> {
+  const options = resolveCodecOptions(schema);
+  return options.decode({ options, xml });
+}
 
-  for (const el of innerEls) {
-    if (el.type !== "element") continue; // skip text nodes etc.
-    const match = matchers.find((m) => m.test(el));
-    if (!match) {
-      sequence.push(el);
-      continue;
-    }
-    const { fieldName } = match;
-    if (!raw[fieldName]) raw[fieldName] = [];
-    raw[fieldName].push(el);
-    if (!seenFields.has(fieldName)) {
-      seenFields.add(fieldName);
-      sequence.push(fieldName);
-    }
+export function encode<S extends z.ZodType>(schema: S, data: z.output<S>): XMLElement {
+  const options = resolveCodecOptions(schema);
+  return options.encode({ options, data });
+}
+
+type DefaultResolver<S extends z.ZodType = z.ZodType> = (schema: S) => CodecOptions<S> | void;
+
+// FIXME:  calls to `normalizeCodecOptions` inside a default resolver could
+// cause an infinite recursion (as resolveDefault can be lazily called if some options are missing)
+// this should be prevented and/or detected
+export function registerDefault(resolve: DefaultResolver) {
+  defaults.push(resolve);
+}
+
+const defaults: DefaultResolver[] = [];
+
+function resolveDefault<S extends z.ZodType>(schema: S) {
+  for (let index = defaults.length - 1; index >= 0; index--) {
+    const resolver = defaults[index];
+    const res = resolver(schema);
+    if (res) return res as CodecOptions<S>;
   }
+}
 
-  // Convert each matched field
-  const result: Record<string, unknown> = {};
-  for (const fieldName of seenFields) {
-    const fieldSchema = shape[fieldName];
-    result[fieldName] = convertFromXML(fieldSchema, raw[fieldName] ?? [], getXMLMeta(fieldSchema));
+registerDefault((schema) => {
+  // array
+  if (schema instanceof z.ZodArray) {
+    const elOptions = resolveCodecOptions(
+      // FIXME: why is this cast needed ?
+      schema.def.element as z.ZodType,
+    );
+    return normalizeCodecOptions(schema, {
+      decode(ctx) {
+        const { xml } = ctx;
+        // FIXME: typescript should warn that xml is possibly null (it doesn't)
+        if (!xml) return [];
+        // expects elements to be wrapped in the children of `xml`
+        return xml.elements
+          .filter((el) => el.type === "element")
+          .map((el) => elOptions.decode({ options: elOptions, xml: el }));
+      },
+      // FIXME: when encode method was missing typescript didn't complain
+      encode(ctx) {
+        const values = ctx.data;
+        // FIXME: should not need this assertion, typescript should know we ctx.data is an array
+        if (!Array.isArray(values)) throw new Error("expected array");
+        return {
+          type: "element",
+          name: ctx.options.tagname(ctx),
+          attributes: {},
+          elements: values.map((v) => elOptions.encode({ options: elOptions, data: v })),
+        };
+      },
+    });
   }
-
-  // Read xml.attr fields from root element attributes
-  if (rootAttributes) {
-    for (const [fieldName, fieldSchema] of Object.entries(shape)) {
-      const attrMeta = getXMLAttrMeta(fieldSchema);
-      if (!attrMeta || attrMeta.ignore) continue;
-      const attrValue = rootAttributes[attrMeta.name];
-      if (attrValue !== undefined) {
-        result[fieldName] = coerceAttrValue(String(attrValue), fieldSchema);
-      }
-    }
+  // wrapped
+  if (schema instanceof z.ZodOptional) {
+    const inner = schema.def.innerType;
+    if (!isZodType(inner)) throw new Error(`Expected a ZodType, got ${inner}`);
+    const innerOptions = resolveCodecOptions(inner);
+    return normalizeCodecOptions(schema, {
+      decode(ctx) {
+        if (!ctx.xml) return undefined;
+        else return innerOptions.decode(ctx);
+      },
+      encode(ctx) {
+        if (typeof ctx.data === "undefined")
+          return {} as XMLElement; // equivalent of empty XML
+        else return innerOptions.encode(ctx);
+      },
+    });
   }
-
-  // Validate with Zod
-  let validated: z.infer<S>;
-  try {
-    validated = schema.parse(result);
-  } catch (err) {
-    if (err instanceof z.ZodError) {
-      throw new XMLValidationError(err, result);
-    }
-    throw err;
+  if (schema instanceof z.ZodLazy) {
+    const inner = schema.def.getter();
+    if (!isZodType(inner)) throw new Error(`Expected a ZodType, got ${inner}`);
+    // TODO: check that user options are not lost
+    return resolveDefault(inner) as any;
   }
+  if (schema instanceof z.ZodCodec) {
+    const inSchema = schema.def.in;
+    const outSchema = schema.def.out;
+    if (!isZodType(inSchema))
+      throw new Error(`Expected schema.def.in to be a ZodType, got ${inSchema}`);
+    if (!isZodType(outSchema))
+      throw new Error(`Expected schema.def.out to be a ZodType, got ${outSchema}`);
+    // TODO: check that user options are not lost
+    const inputCodecOptions = resolveCodecOptions(inSchema);
+    return normalizeCodecOptions(schema, {
+      decode({ xml }) {
+        const input = inputCodecOptions.decode({ options: inputCodecOptions, xml });
+        return schema.parse(input);
+      },
+      encode(ctx) {
+        // `schema.encode would recursively re-encode child classes`
+        // as we only wanna re-encode the top level we should use `outSchema.encode` instead
+        const data = outSchema.encode(ctx.data);
+        return inputCodecOptions.encode({ options: inputCodecOptions, data });
+      },
+    });
+  }
+  // builtins
+  // TODO: determine wether coercion should be built-in or handled by zod directly (see https://zod.dev/api?id=coercion)
+  if (schema instanceof z.ZodString) {
+    return normalizeCodecOptions(schema, {
+      decode(ctx) {
+        return XML.getContent(ctx.xml);
+      },
+      encode(ctx) {
+        return XML.fromContent(ctx.data, ctx.options.tagname(ctx));
+      },
+    });
+  }
+  if (schema instanceof z.ZodNumber) {
+    return normalizeCodecOptions(schema, {
+      decode(ctx) {
+        return Number(XML.getContent(ctx.xml));
+      },
+      encode(ctx) {
+        return XML.fromContent(ctx.data.toString(), ctx.options.tagname(ctx));
+      },
+    });
+  }
+  if (schema instanceof z.ZodBoolean) {
+    return normalizeCodecOptions(schema, {
+      decode(ctx) {
+        return XML.getContent(ctx.xml) === "true";
+      },
+      encode(ctx) {
+        return XML.fromContent(ctx.data.toString(), ctx.options.tagname(ctx));
+      },
+    });
+  }
+});
 
-  // Attach non-enumerable sequence metadata
-  Object.defineProperty(validated, FIELD_ORDER, {
-    value: sequence,
-    enumerable: false,
-    writable: true,
-    configurable: true,
+registerDefault(<S extends z.ZodObject>(schema: S) => {
+  if (schema instanceof z.ZodObject) {
+    const options = resolvePropertiesConversionOptions(schema);
+    return normalizeCodecOptions(schema, {
+      decode(ctx) {
+        const sequence: OrderEntry[] = [];
+
+        // build the base property decoding contexts (with tagname)
+        // FIXME: typescript error
+        // @ts-ignore
+        const propContexts: {
+          [K in keyof typeof options]: {
+            name: K;
+            options: CodecOptions<z.ZodType>;
+            tagname: string;
+            xml: XMLElement | null;
+          };
+        } = Object.fromEntries(
+          Object.entries(options).map(([name, propOpts]) => {
+            const tagname = propOpts.propertyTagname({ name, options: propOpts });
+            return [
+              name,
+              {
+                name,
+                options: propOpts,
+                tagname,
+                // starts as a collection container; replaced with actual element or null after matching
+                xml: { elements: [] } as unknown as XMLElement,
+              },
+            ];
+          }),
+        );
+
+        // matching and ordering sequence
+        const seenProperties = new Set<string>();
+        for (const el of ctx.xml.elements) {
+          if (el.type !== "element") continue;
+          const matches: string[] = [];
+          for (const prop in options) {
+            const propCtx = propContexts[prop];
+            if (options[prop].propertyMatch(el, propCtx)) {
+              matches.push(prop);
+              // propCtx.xml starts as a container { elements: [] } cast to XMLElement
+              propCtx.xml.elements.push(el);
+            }
+          }
+          if (!matches.length) {
+            // element never matched, mark as unsupported
+            sequence.push(el);
+            continue;
+          } else if (matches.length === 1) {
+            // element matched exactly one property
+            const propName = matches[0];
+            if (seenProperties.has(propName)) {
+              // more than one element matches a single property
+              // this should only happen for inline arrays
+              const prop = options[propName];
+              if (!prop.inlineProperty)
+                throw new Error(
+                  "Matching multiple elements for a single property is only supported when `inlineProperty` is true",
+                );
+            } else {
+              sequence.push(propName);
+              seenProperties.add(propName);
+            }
+          } else {
+            // element matched by more than one property, not supported
+            throw new Error(
+              `Same element was matched by multiple properties: ${matches.join(", ")}`,
+            );
+          }
+        }
+        // some properties that don't have matching elements in input will be omitted on decoding
+        // then we add unmatched properties to the sequence so that they are not omitted on encoding
+        for (const propName in options) {
+          // TODO: should we use special ordering ?
+          if (!seenProperties.has(propName)) sequence.push(propName);
+        }
+
+        // Convert each matched field
+        const result: Partial<z.input<S>> = {};
+        for (const prop in options) {
+          const o = options[prop];
+          const propCtx = propContexts[prop];
+
+          // ctx.xml is currently an XML root containing all matches
+          // so nothing to do in inline mode
+          if (!o.inlineProperty) {
+            // when not in inline mode we only care about the (at most) single matched element
+            const matches = propCtx.xml.elements as XMLElement[];
+            if (matches.length === 0) propCtx.xml = null;
+            else {
+              assertSingleElement(matches);
+              propCtx.xml = matches[0];
+            }
+          }
+
+          o.decodeAsProperty({
+            // @ts-ignore
+            options: ctx.options,
+            xml: ctx.xml,
+            // @ts-ignore
+            property: propCtx,
+            result,
+          });
+        }
+
+        // TODO: check that all property exist (not Partial anymore)
+
+        // Attach non-enumerable XML round-trip state
+        Object.defineProperty(result, XML_STATE, {
+          value: { fieldOrder: sequence } satisfies XMLState,
+          enumerable: false,
+          writable: true,
+          configurable: true,
+        });
+
+        return result as z.input<S>;
+      },
+      encode(ctx) {
+        const { data } = ctx;
+        const result: XMLElement = {
+          type: "element",
+          name: ctx.options.tagname(ctx),
+          // already create the attributes record so `attr(...)` encoding handlers don't have to
+          attributes: {},
+          elements: [],
+        };
+        const sequence =
+          ((data as any)[XML_STATE] as XMLState | undefined)?.fieldOrder ?? Object.keys(options);
+        for (const item of sequence) {
+          if (typeof item === "string") {
+            const o = options[item];
+            if (!o) {
+              // TODO: proper error with more context
+              throw new Error(`Failed to resolve property options for sequence item ${item}`);
+            }
+            o.encodeAsProperty({
+              // FIXME should not need type casts
+              options: ctx.options as CodecOptions<S>,
+              data: data as z.output<S>,
+              property: {
+                name: item,
+                options: o,
+                tagname: o.propertyTagname({ name: item, options: o }),
+                value: (data as any)[item],
+              },
+              result,
+            });
+          } else {
+            // item is an unsupported element
+            // insert in sequence order
+            result.elements.push(item);
+          }
+        }
+        return result;
+      },
+    });
+  }
+});
+
+export function xmlCodec<S extends z.ZodType>(schema: S) {
+  const codec = z.codec(z.string(), schema, {
+    decode(xml) {
+      const xmlRoot = XML.parse(xml);
+      const xmlEl = XML.elementFromRoot(xmlRoot);
+      const input = decode(schema, xmlEl);
+      // FIXME: even if XML_STATE is still in `input` at this point,
+      // it will be stripped when `input` gets passed into `schema.parse`
+      return input;
+    },
+    encode(value) {
+      // FIXME: here `value` has already been encoded into the input type of `schema`
+      // in particular, classes have been recursively transformed into they input data
+      // this prevents re-serialization to work correctly as the schemas currently expect instances
+      // and not objects
+      const xmlEl = encode(
+        schema,
+        // FIXME: value is expected to be of type input<S>
+        // so `schema` should be able or re-encoding its output
+        value as z.output<S>,
+      );
+      return XML.stringify({ elements: [xmlEl] });
+    },
   });
-
-  return validated;
-}
-
-function buildFromXML<S extends z.ZodObject<any>>(schema: S) {
-  return function fromXML(xml: string | XMLRoot): z.infer<S> {
-    const root = typeof xml === "string" ? XML.parse(xml) : xml;
-    const rootTagname = getRootTagname(schema);
-
-    let innerEls: XMLElement[];
-    let rootEl: XMLElement | undefined;
-
-    if (rootTagname) {
-      rootEl = root.elements[0];
-      innerEls = rootEl?.elements ?? [];
-    } else {
-      innerEls = root.elements;
-    }
-
-    const validated = _fromInner(schema, innerEls, rootEl?.attributes);
-
-    // Attach root element attributes for round-trip preservation
-    if (rootEl?.attributes) {
-      Object.defineProperty(validated, ROOT_ATTRS, {
-        value: rootEl.attributes,
-        enumerable: false,
-        writable: true,
-        configurable: true,
-      });
-    }
-
-    return validated;
-  };
-}
-
-/**
- * Converts a list of XML elements into a typed value using the given schema.
- */
-function convertFromXML(schema: z.core.$ZodType, elements: XMLElement[], meta: XMLMeta): unknown {
-  if (schema instanceof z.ZodOptional) {
-    if (elements.length === 0) return undefined;
-    return convertFromXML(schema.def.innerType, elements, meta);
-  }
-
-  if (schema instanceof z.ZodLazy) {
-    return convertFromXML(schema.def.getter(), elements, meta);
-  }
-
-  if (schema instanceof z.ZodArray) {
-    const elementSchema = schema.def.element;
-    if (meta.inline) {
-      // Each element in the list is one array item
-      return elements.map((el) => convertSingleFromXML(elementSchema, el));
-    } else {
-      // elements[0] is a wrapper element; its children are the items
-      const wrapper = elements[0];
-      const children = wrapper?.elements ?? [];
-      return children
-        .filter((el) => el.type === "element")
-        .map((el) => convertSingleFromXML(elementSchema, el));
-    }
-  }
-
-  if (schema instanceof z.ZodPipe) {
-    const inner = schema.def.in as z.ZodObject<any>;
-    const el = elements[0];
-    return _fromInner(inner, el?.elements ?? [], el?.attributes);
-  }
-
-  if (schema instanceof z.ZodObject) {
-    return _fromInner(schema, elements[0]?.elements ?? [], elements[0]?.attributes);
-  }
-
-  if (schema instanceof z.ZodString) {
-    return String(XML.getContent(elements[0]) ?? "");
-  }
-
-  if (schema instanceof z.ZodNumber) {
-    return Number(XML.getContent(elements[0]));
-  }
-
-  if (schema instanceof z.ZodBoolean) {
-    return XML.getContent(elements[0]) === "true";
-  }
-
-  return undefined;
-}
-
-/**
- * Converts a single XML element into a value using the given schema.
- * Used for array items and nested object fields.
- */
-function convertSingleFromXML(schema: z.core.$ZodType, el: XMLElement): unknown {
-  if (schema instanceof z.ZodLazy) {
-    return convertSingleFromXML(schema.def.getter(), el);
-  }
-
-  if (schema instanceof z.ZodPipe) {
-    const inner = schema.def.in as z.ZodObject<any>;
-    return _fromInner(inner, el.elements ?? [], el.attributes);
-  }
-
-  if (schema instanceof z.ZodObject) {
-    return _fromInner(schema, el.elements ?? [], el.attributes);
-  }
-
-  if (schema instanceof z.ZodString) {
-    return String(XML.getContent(el) ?? "");
-  }
-
-  if (schema instanceof z.ZodNumber) {
-    return Number(XML.getContent(el));
-  }
-
-  if (schema instanceof z.ZodBoolean) {
-    return XML.getContent(el) === "true";
-  }
-
-  if (schema instanceof z.ZodOptional) {
-    return convertSingleFromXML(schema.def.innerType, el);
-  }
-
-  return undefined;
-}
-
-function buildToXML<S extends z.ZodObject<any>>(schema: S) {
-  return function toXML(value: z.infer<S>): XMLRoot {
-    const rootTagname = getRootTagname(schema);
-    const shape = schema.def.shape as Record<string, z.core.$ZodType>;
-    const children: XMLElement[] = [];
-    const attrs: XMLAttributes = {
-      ...(value as any)[ROOT_ATTRS],
-    };
-
-    // Collect xml.attr fields
-    for (const [fieldName, fieldSchema] of Object.entries(shape)) {
-      const attrMeta = getXMLAttrMeta(fieldSchema);
-      if (!attrMeta || attrMeta.ignore) continue;
-      const fieldValue = (value as any)[fieldName];
-      if (fieldValue !== undefined) attrs[attrMeta.name] = String(fieldValue);
-    }
-
-    // Use FIELD_ORDER sequence when available (document order + unknown passthrough)
-    // Fall back to schema key order for hand-crafted objects
-    const sequence: OrderEntry[] =
-      (value as any)[FIELD_ORDER] ??
-      Object.keys(shape).filter((k) => {
-        const fs = shape[k];
-        return !getXMLMeta(fs).ignore && !getXMLAttrMeta(fs);
-      });
-
-    const emitted = new Set<string>();
-
-    for (const entry of sequence) {
-      if (typeof entry !== "string") {
-        // Unknown element — re-emit verbatim
-        children.push(entry as XMLElement);
-        continue;
-      }
-
-      const fieldName = entry;
-      if (emitted.has(fieldName)) continue;
-      emitted.add(fieldName);
-
-      const fieldSchema = shape[fieldName];
-      if (!fieldSchema) continue;
-      const propMeta = getXMLMeta(fieldSchema);
-      if (propMeta.ignore) continue;
-      const attrMeta = getXMLAttrMeta(fieldSchema);
-      if (attrMeta) continue; // handled above
-
-      const tagname = getPropTagname(fieldName, fieldSchema);
-      const fieldValue = (value as any)[fieldName];
-      children.push(...convertToXML(fieldSchema, fieldValue, tagname, propMeta));
-    }
-
-    // Append any schema fields that weren't in the sequence (new fields)
-    for (const fieldName of Object.keys(shape)) {
-      if (emitted.has(fieldName)) continue;
-      const fieldSchema = shape[fieldName];
-      const propMeta = getXMLMeta(fieldSchema);
-      if (propMeta.ignore) continue;
-      const attrMeta = getXMLAttrMeta(fieldSchema);
-      if (attrMeta) continue;
-      const tagname = getPropTagname(fieldName, fieldSchema);
-      const fieldValue = (value as any)[fieldName];
-      children.push(...convertToXML(fieldSchema, fieldValue, tagname, propMeta));
-      emitted.add(fieldName);
-    }
-
-    if (rootTagname) {
-      const rootEl: XMLElement = { type: "element", name: rootTagname, elements: children };
-      if (Object.keys(attrs).length) rootEl.attributes = attrs;
-      return { elements: [rootEl] };
-    } else {
-      return { elements: children };
-    }
-  };
-}
-
-/**
- * Converts a typed value to a list of XMLElements using the given schema.
- */
-function convertToXML(
-  schema: z.core.$ZodType,
-  value: unknown,
-  tagname: string,
-  meta: XMLMeta,
-): XMLElement[] {
-  if (schema instanceof z.ZodOptional) {
-    if (value === undefined) return [];
-    return convertToXML(schema.def.innerType, value, tagname, meta);
-  }
-
-  if (schema instanceof z.ZodLazy) {
-    return convertToXML(schema.def.getter(), value, tagname, meta);
-  }
-
-  if (schema instanceof z.ZodArray) {
-    const items = value as unknown[];
-    const elementSchema = schema.def.element;
-    if (!items || items.length === 0) return [];
-
-    if (meta.inline) {
-      // Each item becomes its own element at this level
-      return items.flatMap((item) => convertSingleToXML(elementSchema, item, tagname));
-    } else {
-      // Wrap items in a container element
-      const itemEls = items.flatMap((item) => convertSingleToXML(elementSchema, item, tagname));
-      return [{ type: "element", name: tagname, elements: itemEls }];
-    }
-  }
-
-  if (schema instanceof z.ZodPipe) {
-    return convertToXML(schema.def.in as z.ZodObject<any>, value, tagname, meta);
-  }
-
-  if (schema instanceof z.ZodObject) {
-    const nested = xmlCodec(schema).toXML(value as any);
-    // Rename the root element if schema has a tagname
-    const nestedRootTagname = getRootTagname(schema);
-    if (nestedRootTagname && nested.elements[0]) {
-      const el = { ...nested.elements[0], name: tagname };
-      return [el];
-    }
-    // No tagname on nested schema — wrap its children in tagname element
-    return [{ type: "element", name: tagname, elements: nested.elements }];
-  }
-
-  if (
-    schema instanceof z.ZodString ||
-    schema instanceof z.ZodNumber ||
-    schema instanceof z.ZodBoolean
-  ) {
-    return [XML.fromContent(String(value), tagname)];
-  }
-
-  return [];
-}
-
-/**
- * Converts a single value to XMLElement(s). Used for array items.
- */
-function convertSingleToXML(
-  schema: z.core.$ZodType,
-  value: unknown,
-  tagname: string,
-): XMLElement[] {
-  if (schema instanceof z.ZodLazy) {
-    return convertSingleToXML(schema.def.getter(), value, tagname);
-  }
-
-  if (schema instanceof z.ZodPipe) {
-    return convertSingleToXML(schema.def.in as z.ZodObject<any>, value, tagname);
-  }
-
-  if (schema instanceof z.ZodObject) {
-    const nested = xmlCodec(schema).toXML(value as any);
-    const nestedRootTagname = getRootTagname(schema);
-    if (nestedRootTagname && nested.elements[0]) {
-      return [{ ...nested.elements[0], name: tagname }];
-    }
-    return [{ type: "element", name: tagname, elements: nested.elements }];
-  }
-
-  if (
-    schema instanceof z.ZodString ||
-    schema instanceof z.ZodNumber ||
-    schema instanceof z.ZodBoolean
-  ) {
-    return [XML.fromContent(String(value), tagname)];
-  }
-
-  if (schema instanceof z.ZodOptional) {
-    if (value === undefined) return [];
-    return convertSingleToXML(schema.def.innerType, value, tagname);
-  }
-
-  return [];
+  return codec;
 }

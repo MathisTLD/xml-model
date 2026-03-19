@@ -4,7 +4,7 @@ A **model** is a class produced by `xmlModel()`. It carries a Zod schema that dr
 
 ## Creating a model
 
-Pass a Zod schema annotated with `xml.prop()` / `xml.attr()` and an optional `{ tagname }` for the root element:
+Pass a Zod schema and an optional `{ tagname }` for the root element. Plain Zod types become child elements automatically; use `xml.attr()` for XML attributes and `xml.prop()` when you need to customise an element:
 
 ```ts
 import { z } from "zod";
@@ -13,7 +13,7 @@ import { xmlModel, xml } from "xml-model";
 class Article extends xmlModel(
   z.object({
     slug: xml.attr(z.string(), { name: "slug" }),
-    title: xml.prop(z.string()),
+    title: z.string(),
   }),
   { tagname: "article" },
 ) {}
@@ -71,7 +71,7 @@ sc instanceof Vehicle; // true
 You can use `.extend()` inline without naming the intermediate class:
 
 ```ts
-class Truck extends Vehicle.extend({ payload: xml.prop(z.number()) }, { tagname: "truck" }) {}
+class Truck extends Vehicle.extend({ payload: z.number() }, xml.root({ tagname: "truck" })) {}
 ```
 
 ## Fresh class pattern
@@ -114,7 +114,7 @@ Annotate a schema separately with `xml.model()` and then pass it to `xmlModel()`
 import { xml, xmlModel } from "xml-model";
 import { z } from "zod";
 
-const VehicleSchema = xml.model(z.object({ make: xml.prop(z.string()) }), { tagname: "vehicle" });
+const VehicleSchema = xml.model(z.object({ make: z.string() }), { tagname: "vehicle" });
 
 class SimpleVehicle extends xmlModel(VehicleSchema) {}
 SimpleVehicle.dataSchema === VehicleSchema; // true
@@ -127,7 +127,7 @@ SimpleVehicle.dataSchema === VehicleSchema; // true
 ```ts
 // Extend the schema without inheriting the prototype chain
 const ExtendedSchema = Vehicle.dataSchema.extend({
-  payload: xml.prop(z.number()),
+  payload: z.number(),
 });
 ```
 

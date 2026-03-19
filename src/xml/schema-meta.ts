@@ -1,151 +1,179 @@
-import type { XMLElement } from "./types";
-import { kebabCase } from "../util/kebab-case";
 import { z } from "zod";
+import type { UserCodecOptions, PropertyDecodingContext, PropertyEncodingContext } from "./codec";
+import type { XMLElement } from "./xml-js";
+import { getParentSchema, isZodType } from "@/util/zod";
 
 const metaKey = "@@xml-model" as const;
 
 // Augment Zod v4's GlobalMeta with a single namespaced key for all XML metadata.
+// Use a loose stored type to avoid infinite type instantiation from recursive CodecOptions.
 declare module "zod" {
   interface GlobalMeta {
-    [metaKey]?: XMLMeta;
+    "@@xml-model"?: Record<string, unknown>;
   }
 }
 
-/**
- * All XML metadata for a schema, used by both field-level and root-level helpers.
- * - `attr` present → field is an XML attribute with that name
- * - `attr` absent  → field is a child element
- * - `tagname`      → explicit XML tag name (root element or field element)
- */
-export interface XMLMeta {
-  attr?: string;
-  tagname?: string;
-  inline?: boolean;
-  ignore?: boolean;
-  match?: string | RegExp | ((el: XMLElement) => boolean);
+/** Merge `partial` into the schema's existing meta (shallow spread, no overwrite). */
+function setMeta<S extends z.ZodType>(schema: S, partial: UserCodecOptions): S {
+  const existing = schema.meta()?.[metaKey] ?? {};
+  return schema.meta({ [metaKey]: { ...existing, ...partial } } as z.GlobalMeta) as S;
 }
 
-type AnyXmlModelClass = {
-  dataSchema: z.ZodObject<any>;
-  schema(): z.ZodPipe<any, any>;
-  new (data: any): any;
+// ---------------------------------------------------------------------------
+// Local parameter types (not exported — helpers map them to UserCodecOptions)
+// ---------------------------------------------------------------------------
+
+type UserRootOptions<S extends z.ZodType = z.ZodType> = {
+  tagname?: string | UserCodecOptions<S>["tagname"];
+  decode?: UserCodecOptions<S>["decode"];
+  encode?: UserCodecOptions<S>["encode"];
 };
 
-function isXmlModelClass(v: unknown): v is AnyXmlModelClass {
-  return (
-    typeof v === "function" &&
-    v !== null &&
-    "dataSchema" in v &&
-    (v as any).dataSchema instanceof z.ZodObject
-  );
-}
+type UserPropOptions = {
+  tagname?: string | UserCodecOptions["propertyTagname"];
+  inline?: boolean;
+  match?: RegExp | ((el: XMLElement) => boolean);
+  decode?: (ctx: PropertyDecodingContext) => Partial<Record<string, unknown>> | undefined;
+  encode?: (ctx: PropertyEncodingContext) => XMLElement | undefined;
+};
 
-/**
- * Attaches XMLMeta to a field schema (marks it as a child element field).
- * Also accepts an xmlModel class directly → calls Class.schema() to extract the ZodPipe.
- */
-function prop<C extends AnyXmlModelClass>(
-  cls: C,
-  meta?: XMLMeta,
-): z.ZodPipe<
-  C["dataSchema"],
-  z.ZodTransform<
-    z.infer<C["dataSchema"]>,
-    C extends abstract new (...args: any) => infer I ? I : never
-  >
->;
-function prop<S extends z.ZodType>(schema: S, meta?: XMLMeta): S;
-function prop(schemaOrClass: z.ZodType | AnyXmlModelClass, meta: XMLMeta = {}): z.ZodType {
-  if (isXmlModelClass(schemaOrClass)) {
-    return schemaOrClass.schema().meta({ [metaKey]: meta });
+function normalizePropOptions(options?: UserPropOptions): UserCodecOptions {
+  if (!options) return {};
+  const partial: UserCodecOptions = {};
+  if (options.tagname !== undefined)
+    partial.propertyTagname = options.tagname as UserCodecOptions["propertyTagname"];
+  if (options.inline !== undefined) partial.inlineProperty = options.inline;
+  if (options.match !== undefined)
+    partial.propertyMatch = options.match as UserCodecOptions["propertyMatch"];
+  if (options.decode !== undefined) {
+    const userDecode = options.decode;
+    partial.decodeAsProperty = function (ctx) {
+      const res = userDecode(ctx);
+      if (typeof res !== "undefined") {
+        Object.assign(ctx.result, res);
+      }
+    };
   }
-  return schemaOrClass.meta({ [metaKey]: meta });
+  if (options.encode !== undefined) {
+    const userEncode = options.encode;
+    partial.encodeAsProperty = function (ctx) {
+      const { property } = ctx;
+      const res = userEncode(ctx);
+      if (typeof res === "undefined") return;
+      if (property.options.inlineProperty) {
+        ctx.result.elements.push(...res.elements);
+      } else {
+        res.name = property.tagname;
+        ctx.result.elements.push(res);
+      }
+    };
+  }
+  return partial;
 }
 
-/**
- * Attaches attribute metadata to a field schema (marks it as an XML attribute field).
- */
-function attr<S extends z.ZodType>(schema: S, meta: { name: string; ignore?: boolean }): S {
-  return schema.meta({ [metaKey]: { attr: meta.name, ignore: meta.ignore } });
+// ---------------------------------------------------------------------------
+// xml.root
+// ---------------------------------------------------------------------------
+
+export function root<S extends z.ZodType>(schema: S, options: UserRootOptions<S>): S;
+export function root(options: UserRootOptions): z.GlobalMeta;
+export function root<S extends z.ZodType>(
+  optionsOrSchema: S | UserRootOptions,
+  options?: UserRootOptions<S>,
+) {
+  if (isZodType(optionsOrSchema)) {
+    return setMeta(optionsOrSchema, options ?? {});
+  } else {
+    return { [metaKey]: optionsOrSchema } as z.GlobalMeta;
+  }
 }
 
+// ---------------------------------------------------------------------------
+// xml.prop
+// ---------------------------------------------------------------------------
+
 /**
- * Two forms:
- * - `xml.model(schema, meta?)` — attaches XMLMeta to a schema (used in xmlModel() internals)
- * - `xml.model(meta)` — returns a GlobalMeta partial for use as the second arg to `.extend()`
+ * Annotate a field schema with XML child-element options.
+ *
+ * **`xml.prop()` with no options is a no-op.** The codec already iterates all
+ * ZodObject fields and defaults the tag name to `kebabCase(fieldKey)`. Wrap a
+ * schema in `xml.prop()` only when you need to customise at least one of:
+ * `tagname`, `inline`, `match`, `decode`, or `encode`.
  *
  * @example
- * class Car extends Vehicle.extend({ doors: xml.prop(z.number()) }, xml.model({ tagname: "car" })) {}
+ * // ✅ Needed — custom tagname
+ * xml.prop(z.string(), { tagname: "pub-date" })
+ *
+ * // ✅ Needed — inline (children promoted to parent)
+ * xml.prop(z.array(ItemSchema), { inline: true })
+ *
+ * // ⚠️  Redundant — equivalent to plain z.string()
+ * xml.prop(z.string())
  */
-function model(meta: XMLMeta): { [metaKey]?: XMLMeta };
-function model<S extends z.ZodObject<any>>(schema: S, meta?: XMLMeta): S;
-function model(
-  schemaOrMeta: z.ZodObject<any> | XMLMeta,
-  meta: XMLMeta = {},
-): z.ZodObject<any> | { [metaKey]?: XMLMeta } {
-  if (schemaOrMeta instanceof z.ZodObject) {
-    return schemaOrMeta.meta({ [metaKey]: meta });
+export function prop<PS extends z.ZodType>(schema: PS, options: UserPropOptions): PS;
+export function prop(options: UserPropOptions): z.GlobalMeta;
+export function prop<PS extends z.ZodType>(
+  optionsOrSchema: PS | UserPropOptions,
+  options?: UserPropOptions,
+) {
+  if (isZodType(optionsOrSchema)) {
+    return setMeta(optionsOrSchema, normalizePropOptions(options));
+  } else {
+    return { [metaKey]: normalizePropOptions(optionsOrSchema) } as z.GlobalMeta;
   }
-  return { [metaKey]: schemaOrMeta };
 }
+
+// ---------------------------------------------------------------------------
+// xml.attr
+// ---------------------------------------------------------------------------
+
+type AttributePropOptions = { name?: string };
+
+export function attr<PS extends z.ZodType>(schema: PS, options?: AttributePropOptions): PS;
+export function attr(options?: AttributePropOptions): z.GlobalMeta;
+export function attr<PS extends z.ZodType>(
+  optionsOrSchema?: PS | AttributePropOptions,
+  options?: AttributePropOptions,
+) {
+  const opts = isZodType(optionsOrSchema) ? (options ?? {}) : (optionsOrSchema ?? {});
+  const partial: UserCodecOptions = {
+    decodeAsProperty(ctx) {
+      const { name, options: propOptions } = ctx.property;
+      const attrName = opts.name ?? (name as string);
+      const attrValue = ctx.xml?.attributes[attrName];
+      // TODO: document: the schema is responsible for coercion
+      ctx.result[name as string] = propOptions.schema.parse(attrValue);
+    },
+    encodeAsProperty(ctx) {
+      const { value, name } = ctx.property;
+      const attrName = opts.name ?? name;
+      // TODO: throw error if attribute already set?
+      ctx.result.attributes[attrName] = value.toString();
+    },
+  };
+  if (isZodType(optionsOrSchema)) {
+    return setMeta(optionsOrSchema, partial);
+  } else {
+    return { [metaKey]: partial } as z.GlobalMeta;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Namespace export + getUserOptions
+// ---------------------------------------------------------------------------
 
 /** Namespace object for XML metadata helpers. */
-export const xml = { prop, attr, model };
+export const xml = { root, prop, attr };
 
-/**
- * Returns the XMLMeta for a schema, or an empty object if none is set.
- */
-export function getXMLMeta(schema: z.core.$ZodType): XMLMeta {
-  // FIXME: why do we need as `as` ?
-  return (z.globalRegistry.get(schema)?.[metaKey] as XMLMeta | undefined) ?? {};
+export function getOwnUserOptions<S extends z.ZodType>(schema: S): UserCodecOptions<S> {
+  const meta = schema.meta();
+  return (meta?.[metaKey] ?? {}) as UserCodecOptions<S>;
 }
 
-/**
- * Returns the attribute metadata for a schema, or undefined if it is not an attribute field.
- */
-export function getXMLAttrMeta(
-  schema: z.core.$ZodType,
-): { name: string; ignore?: boolean } | undefined {
-  const m = getXMLMeta(schema);
-  return m.attr !== undefined ? { name: m.attr, ignore: m.ignore } : undefined;
-}
-
-/**
- * Derives the XML tag name for a property.
- * Uses the explicit tagname from meta if provided, otherwise:
- * - For inline arrays, falls back to the element schema's root tagname (if any)
- * - Otherwise converts fieldName to kebab-case.
- */
-export function getPropTagname(fieldName: string, schema: z.core.$ZodType): string {
-  const meta = getXMLMeta(schema);
-  if (meta.tagname) return meta.tagname;
-  if (meta.inline && schema instanceof z.ZodArray) {
-    const elementTagname = getRootTagname(schema.def.element);
-    if (elementTagname) return elementTagname;
-  }
-  return kebabCase(fieldName);
-}
-
-/**
- * Derives the XML tag name for a root element.
- * Returns the tagname from meta, or empty string if not set.
- * Unwraps ZodPipe to find the inner ZodObject's metadata.
- */
-export function getRootTagname(schema: z.core.$ZodType): string {
-  if (schema instanceof z.ZodPipe) return getRootTagname(schema.def.in);
-  return getXMLMeta(schema).tagname ?? "";
-}
-
-/**
- * Resolves the `match` option to a predicate function.
- * Falls back to exact tag name equality using `defaultTagname`.
- */
-export function resolveMatchFn(
-  match: XMLMeta["match"],
-  defaultTagname: string,
-): (el: XMLElement) => boolean {
-  if (!match) return (el) => el.name === defaultTagname;
-  if (typeof match === "string") return (el) => el.name === match;
-  if (match instanceof RegExp) return (el) => match.test(el.name ?? "");
-  return match;
+export function getUserOptions<S extends z.ZodType>(schema: S): UserCodecOptions<S> {
+  const own = getOwnUserOptions(schema);
+  const parentSchema = getParentSchema(schema);
+  if (!parentSchema) return own;
+  const parentOptions = getUserOptions(parentSchema);
+  return { ...parentOptions, ...own } as UserCodecOptions<S>;
 }

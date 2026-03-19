@@ -1,6 +1,5 @@
 import { z } from "zod";
 import type { GlobalMeta } from "zod";
-import { CodecId, CodecInput, CodecOutput, CodecOptions, getCodec } from "./codec";
 
 /**
  * Constructor type for model classes.
@@ -10,45 +9,44 @@ import { CodecId, CodecInput, CodecOutput, CodecOptions, getCodec } from "./code
  *           `extend()` widens it to `InstanceType<Self> & z.infer<ExtendedSchema>`
  *           so that parent class methods survive into child instances.
  */
-export type ModelConstructor<S extends z.ZodObject<any>, Inst extends z.infer<S> = z.infer<S>> = {
+export type ModelConstructor<
+  S extends z.ZodObject<any> = z.ZodObject<any>,
+  Inst extends z.infer<S> = z.infer<S>,
+> = {
   new (data: z.infer<S>): Inst;
   readonly dataSchema: S;
 
   /**
-   * Returns a ZodPipe that transforms parsed data into a class instance.
+   * Returns a ZodCodec that transforms parsed data into a class instance (and can go the other way around).
    * Use inside xml.prop() or z.array(...).
    */
   schema<T extends abstract new (...args: any[]) => any>(
     this: T,
-  ): z.ZodPipe<S, z.ZodTransform<InstanceType<T>, z.infer<S>>>;
+  ): z.ZodCodec<S, z.ZodCustom<InstanceType<T>, InstanceType<T>>>;
 
   /**
    * Override to customise instantiation — e.g. to inject extra constructor arguments.
    * Called by from() instead of `new this(data)` directly.
    */
-  fromData<T extends new (...args: any[]) => any>(this: T, data: z.infer<S>): InstanceType<T>;
+  fromData<T extends new (...args: any[]) => any>(this: T, data: z.output<S>): InstanceType<T>;
 
-  /** Decode input using a registered codec and return a class instance. */
-  from<T extends abstract new (...args: any[]) => any, K extends CodecId>(
+  /**
+   * Returns the raw decoded data object stored on the instance — the same
+   * object that was passed to the constructor, including any non-enumerable
+   * symbol metadata (e.g. `XML_STATE`) that survived construction.
+   */
+  toData<T extends abstract new (...args: any[]) => any>(
     this: T,
-    codecId: K,
-    input: CodecInput<K>,
-  ): InstanceType<T>;
-
-  /** Encode an instance using a registered codec. */
-  to<K extends CodecId>(
-    codecId: K,
-    instance: z.infer<S>,
-    options?: CodecOptions<K>,
-  ): CodecOutput<K>;
+    instance: InstanceType<T>,
+  ): z.output<S>;
 
   /**
    * Creates a new model class that truly extends this one — inheriting its prototype
    * chain and methods — while adding new schema fields.
    *
-   * Pass an optional `meta` object (e.g. `xml.model({ tagname: "car" })`) to attach
+   * Pass an optional `meta` object (e.g. `xml.root({ tagname: "car" })`) to attach
    * Zod schema metadata to the extended schema. Multiple codec metas compose with spread:
-   * `{ ...xml.model({ tagname: "car" }), ...otherCodec.meta({...}) }`
+   * `{ ...xml.root({ tagname: "car" }), ...otherCodec.meta({...}) }`
    */
   extend<Self extends ModelConstructor<S, Inst>, U extends z.core.$ZodLooseShape>(
     this: Self,
@@ -66,9 +64,27 @@ const schemaSymbol = Symbol("model:schema");
 /** Marker placed on every class returned by `model()`. Used by `isModel()`. */
 const MODEL_MARKER = Symbol("model:marker");
 
+/** Stores the raw data object on model instances. */
+export const DATA = Symbol("model:data");
+
 /** Returns true if `cls` is a class produced by `model()` (or a subclass of one). */
-export function isModel(cls: unknown): cls is ModelConstructor<z.ZodObject<any>> {
+export function isModel(cls: unknown): cls is ModelConstructor {
   return typeof cls === "function" && MODEL_MARKER in cls;
+}
+
+function defineFieldAccessors(proto: object, keys: string[]) {
+  for (const key of keys) {
+    Object.defineProperty(proto, key, {
+      get() {
+        return (this as any)[DATA][key];
+      },
+      set(v) {
+        (this as any)[DATA][key] = v;
+      },
+      enumerable: true,
+      configurable: true,
+    });
+  }
 }
 
 /**
@@ -79,19 +95,26 @@ export function isModel(cls: unknown): cls is ModelConstructor<z.ZodObject<any>>
  *
  * @example
  * class Book extends model(z.object({ title: z.string() })) {}
- * const book = Book.from("myCodec", input);
  */
 export function model<S extends z.ZodObject<any>>(schema: S): ModelConstructor<S> {
   type Data = z.infer<S>;
 
-  return class {
+  class Base {
     static readonly dataSchema: S = schema;
     static readonly [MODEL_MARKER] = true;
+
     static schema() {
       // Cache per-class so each subclass gets its own ZodPipe with the right constructor
       if (!Object.prototype.hasOwnProperty.call(this, schemaSymbol)) {
-        const ctor = this as unknown as new (data: Data) => any;
-        this[schemaSymbol] = this.dataSchema.transform((data) => new ctor(data));
+        const codec = z.codec(this.dataSchema, z.instanceof(this), {
+          decode: (data) => {
+            return this.fromData(data);
+          },
+          encode: (instance) => {
+            return instance[DATA];
+          },
+        });
+        this[schemaSymbol] = codec;
       }
       return this[schemaSymbol]!;
     }
@@ -100,30 +123,34 @@ export function model<S extends z.ZodObject<any>>(schema: S): ModelConstructor<S
       let extended = (this as any).dataSchema.extend(extension);
       if (meta) extended = extended.meta(meta);
       // @ts-ignore
-      return class extends this {
+      const Child = class extends this {
         static readonly dataSchema = extended;
       };
+      defineFieldAccessors(Child.prototype, Object.keys(extension));
+      return Child;
     }
 
-    static fromData(data: Data) {
+    static fromData<T extends new (...args: any[]) => any>(this: T, data: Data) {
       return new this(data);
     }
 
-    static from(codecId: CodecId, input: unknown) {
-      const factory = getCodec(codecId);
-      const codec = factory(this.dataSchema);
-      const data = codec.decode(input) as Data;
-      return this.fromData(data);
-    }
-
-    static to(codecId: CodecId, instance: Data, options?: unknown) {
-      const factory = getCodec(codecId);
-      const codec = factory(this.dataSchema);
-      return codec.encode(instance, options);
+    static toData<T extends abstract new (...args: any[]) => any>(
+      this: T,
+      instance: InstanceType<T>,
+    ) {
+      const data = instance[DATA];
+      // FIXME data should always be present
+      if (!data) throw new Error("failed to retrieve instance data");
+      return data;
     }
 
     constructor(data: Data) {
-      Object.assign(this, data);
+      this[DATA] = data;
     }
-  } as unknown as ModelConstructor<S>;
+  }
+
+  defineFieldAccessors(Base.prototype, Object.keys(schema.def.shape));
+
+  // TODO: should not need type cast
+  return Base as unknown as ModelConstructor<S>;
 }

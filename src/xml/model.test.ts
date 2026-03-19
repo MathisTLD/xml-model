@@ -2,8 +2,7 @@ import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import { xmlModel } from "./model";
 import { xml } from "./schema-meta";
-import type { XMLRoot } from "./types";
-import XML from ".";
+import { XML, type XMLRoot } from "./xml-js";
 import {
   Vehicle,
   Car,
@@ -24,11 +23,6 @@ type XMLLike = string | XMLRoot;
 function prettifyXML(input: XMLLike) {
   const root = typeof input === "string" ? XML.parse(input) : input;
   return XML.stringify(root, { spaces: 2 });
-}
-
-/** Compares two XML values structurally, giving readable diffs on failure. */
-function expectXMLEqual(actual: XMLLike, expected: XMLLike) {
-  return expect(prettifyXML(actual)).toEqual(prettifyXML(expected));
 }
 
 // -----------------------------------------------------------------------
@@ -78,15 +72,15 @@ describe("xmlModel", () => {
 
   it("static toXML returns XMLRoot with correct root tag", () => {
     const car = Car.fromXML(carXml);
-    expect(Car.toXML(car).elements[0].name).toBe("car");
+    const xml = Car.toXML(car);
+    const el = XML.elementFromRoot(xml);
+    expect(el.name).toBe("car");
   });
 
   it("static toXMLString contains expected elements and attributes", () => {
     const car = Car.fromXML(carXml);
     const out = Car.toXMLString(car);
-    expect(out).toContain("<car");
-    expect(out).toContain('vin="VIN001"');
-    expect(out).toContain("<make>Toyota</make>");
+    expect(prettifyXML(out)).toEqual(prettifyXML(carXml));
   });
 
   it("static schema() is accessible", () => {
@@ -100,26 +94,13 @@ describe("xmlModel", () => {
     expect(engine.horsepower).toBe(180);
   });
 
-  it("two-step xml.model() + xmlModel() pattern works", () => {
-    const Schema = xml.model(z.object({ make: xml.prop(z.string()) }), { tagname: "vehicle" });
+  it("two-step xml.root() + xmlModel() pattern works", () => {
+    const Schema = xml.root(z.object({ make: z.string() }), { tagname: "vehicle" });
     class SimpleVehicle extends xmlModel(Schema) {}
     const v = SimpleVehicle.fromXML("<vehicle><make>Ford</make></vehicle>");
     expect(v).toBeInstanceOf(SimpleVehicle);
     expect(v.make).toBe("Ford");
     expect(SimpleVehicle.dataSchema).toBe(Schema);
-  });
-
-  it("generic from() delegates to fromXML", () => {
-    const car = Car.from("xml", carXml);
-    expect(car).toBeInstanceOf(Car);
-    expect(car.make).toBe("Toyota");
-  });
-
-  it("generic to() delegates to toXMLString", () => {
-    const car = Car.fromXML(carXml);
-    const out = Car.to("xml", car);
-    expect(out).toContain("<car");
-    expect(out).toContain('vin="VIN001"');
   });
 
   it("fromData() hook allows custom instantiation", () => {
@@ -178,7 +159,7 @@ describe("composition", () => {
 
   it("round-trips to identical XML", () => {
     const fleet = Fleet.fromXML(fleetXml);
-    expectXMLEqual(Fleet.toXML(fleet), fleetXml);
+    expect(prettifyXML(Fleet.toXML(fleet))).toEqual(prettifyXML(fleetXml));
   });
 });
 
@@ -298,6 +279,34 @@ describe("xmlModel(Parent.dataSchema.extend(...)) — fresh class pattern", () =
     const car = CarStandalone.fromXML(carXml);
     // @ts-expect-error — label() is not available on CarStandalone
     expect(typeof car.label).toBe("undefined");
+  });
+});
+
+// -----------------------------------------------------------------------
+// Order preservation
+// -----------------------------------------------------------------------
+
+describe("order preservation", () => {
+  const Schema = xml.root(
+    z.object({
+      // schema order: a, b, c
+      a: z.string(),
+      b: z.string(),
+      c: z.string(),
+    }),
+    { tagname: "root" },
+  );
+  class Root extends xmlModel(Schema) {}
+
+  it("preserves document order (c, a, b) not schema order (a, b, c)", () => {
+    const xmlStr = "<root><c>C</c><a>A</a><b>B</b></root>";
+    const instance = Root.fromXML(xmlStr);
+    const out = Root.toXMLString(instance);
+    const cPos = out.indexOf("<c>");
+    const aPos = out.indexOf("<a>");
+    const bPos = out.indexOf("<b>");
+    expect(cPos).toBeLessThan(aPos);
+    expect(aPos).toBeLessThan(bPos);
   });
 });
 
