@@ -408,3 +408,47 @@ describe("getUserOptions parent-schema inheritance", () => {
     expect(out).toContain("<engine>");
   });
 });
+
+// -----------------------------------------------------------------------
+// ZodCodec tagname propagation (property tagname overrides schema root tagname)
+// -----------------------------------------------------------------------
+
+describe("ZodCodec tagname propagation", () => {
+  // A ZodCodec wrapping a plain-object schema with root tagname "inner".
+  // We use z.codec with identity transforms so no class instances are involved,
+  // keeping the test focused purely on tagname override behaviour.
+  const innerDataSchema = xml.root(z.object({ value: z.string() }), { tagname: "inner" });
+  const innerCodec = z.codec(innerDataSchema, innerDataSchema, {
+    decode: (data) => data,
+    encode: (data) => data,
+  });
+
+  // The outer schema references innerCodec but overrides the serialized tagname to "outer-inner"
+  const OuterSchema = xml.root(
+    z.object({
+      child: xml.prop(innerCodec, { tagname: "outer-inner" }),
+    }),
+    { tagname: "outer" },
+  );
+
+  const xmlStr = "<outer><outer-inner><value>hello</value></outer-inner></outer>";
+
+  it("decodes using property tagname (not schema root tagname)", () => {
+    const result = xmlCodec(OuterSchema).decode(xmlStr);
+    expect(result.child.value).toBe("hello");
+  });
+
+  it("encodes using property tagname (not schema root tagname)", () => {
+    const result = xmlCodec(OuterSchema).decode(xmlStr);
+    const out = xmlCodec(OuterSchema).encode(result);
+    expect(out).toContain("<outer-inner>");
+    expect(out).not.toContain("<inner>");
+  });
+
+  it("roundtrips with property tagname override", () => {
+    const result = xmlCodec(OuterSchema).decode(xmlStr);
+    const out = xmlCodec(OuterSchema).encode(result);
+    const reparsed = xmlCodec(OuterSchema).decode(out);
+    expect(reparsed.child.value).toBe("hello");
+  });
+});

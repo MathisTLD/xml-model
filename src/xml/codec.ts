@@ -90,7 +90,7 @@ export interface PropertyEncodingContext<
   result: XMLElement;
 }
 
-function normalizeCodecOptions<S extends z.ZodType>(
+export function normalizeCodecOptions<S extends z.ZodType>(
   schema: S,
   options: UserCodecOptions<S> = {},
 ): CodecOptions<S> {
@@ -211,7 +211,7 @@ export interface XMLState {
  */
 export const XML_STATE = Symbol("xml-model.state");
 
-function resolvePropertiesConversionOptions<S extends z.ZodObject<any>>(
+function resolvePropertiesCodecOptions<S extends z.ZodObject<any>>(
   schema: S,
 ): { [K in PropKey<S>]: CodecOptions<z.ZodType> } {
   const shape = schema.def.shape as Record<string, z.ZodType>;
@@ -300,6 +300,22 @@ registerDefault((schema) => {
       },
     });
   }
+  if (schema instanceof z.ZodDefault) {
+    const { innerType: inner, defaultValue } = schema.def;
+    if (!isZodType(inner)) throw new Error(`Expected a ZodType, got ${inner}`);
+    const innerOptions = resolveCodecOptions(inner);
+    const getDefault =
+      typeof schema.def.defaultValue === "function" ? schema.def.defaultValue : () => defaultValue;
+    return normalizeCodecOptions(schema, {
+      decode(ctx) {
+        if (!ctx.xml) return getDefault();
+        else return innerOptions.decode(ctx);
+      },
+      encode(ctx) {
+        return innerOptions.encode(ctx);
+      },
+    });
+  }
   if (schema instanceof z.ZodLazy) {
     const inner = schema.def.getter();
     if (!isZodType(inner)) throw new Error(`Expected a ZodType, got ${inner}`);
@@ -318,13 +334,38 @@ registerDefault((schema) => {
     return normalizeCodecOptions(schema, {
       decode({ xml }) {
         const input = inputCodecOptions.decode({ options: inputCodecOptions, xml });
-        return schema.parse(input);
+        // FIXME: is this the correct behavior ?
+        return schema.def.transform(input, { value: input, issues: [] });
       },
       encode(ctx) {
         // `schema.encode would recursively re-encode child classes`
         // as we only wanna re-encode the top level we should use `outSchema.encode` instead
         const data = outSchema.encode(ctx.data);
-        return inputCodecOptions.encode({ options: inputCodecOptions, data });
+        // Propagate the caller's tagname override so that a property-level tagname
+        // (e.g. `xml.prop(Schema, { tagname: "audio-in" })`) is not silently replaced
+        // by the schema's own root tagname (e.g. `xml.root({ tagname: "audio" })`).
+        const innerOpts =
+          ctx.options.tagname !== inputCodecOptions.tagname
+            ? { ...inputCodecOptions, tagname: ctx.options.tagname }
+            : inputCodecOptions;
+        return innerOpts.encode({ options: innerOpts, data });
+      },
+    });
+  }
+  if (schema instanceof z.ZodLiteral) {
+    // TODO: test with mixed types
+    const values = schema.def.values;
+    const valuesFromString = Object.fromEntries(values.map((v) => [v.toString(), v]));
+    return normalizeCodecOptions(schema, {
+      decode(ctx) {
+        const raw = XML.getContent(ctx.xml);
+        if (!(raw in valuesFromString))
+          throw new Error(`Could not retrieve literal value from string "${raw}"`);
+        // FIXME: handle coercion for other types of literals
+        return valuesFromString[raw];
+      },
+      encode(ctx) {
+        return XML.fromContent(String(ctx.data), ctx.options.tagname(ctx));
       },
     });
   }
@@ -364,7 +405,7 @@ registerDefault((schema) => {
 
 registerDefault(<S extends z.ZodObject>(schema: S) => {
   if (schema instanceof z.ZodObject) {
-    const options = resolvePropertiesConversionOptions(schema);
+    const options = resolvePropertiesCodecOptions(schema);
     return normalizeCodecOptions(schema, {
       decode(ctx) {
         const sequence: OrderEntry[] = [];
