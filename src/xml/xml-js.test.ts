@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { XML } from "./xml-js";
 import type { XMLRoot } from "./xml-js";
 import { xml2js } from "xml-js";

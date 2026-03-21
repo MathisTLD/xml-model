@@ -1,4 +1,4 @@
-import { expectTypeOf, test, describe } from "vitest";
+import { expectTypeOf, test, describe } from "vite-plus/test";
 import { z } from "zod";
 import { xml } from "./schema-meta";
 import { Vehicle, Car, SportCar, Fleet } from "./examples";

@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test } from "vite-plus/test";
 import { z } from "zod";
 
 test("Meta has no side effect (need to captured returned value)", () => {

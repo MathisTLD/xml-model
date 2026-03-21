@@ -7,7 +7,7 @@
  *
  * This is a pure type-level test — no implementation is changed here.
  */
-import { expectTypeOf, test, describe } from "vitest";
+import { expectTypeOf, test, describe } from "vite-plus/test";
 import { z } from "zod";
 import { xmlModel } from "./model";
 import type { ModelConstructor } from "../model";
