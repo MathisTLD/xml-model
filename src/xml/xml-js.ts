@@ -275,18 +275,18 @@ function getContent(xml: XMLElement) {
 }
 
 /**
- * Creates a minimal element structure wrapping the given text content.
- * When no tag name is provided, returns a fragment with a text child.
- * When a tag name is provided, returns a full element with the given name and optional attributes.
- *
+ * Creates a text-only fragment wrapping the given content.
  * @param content - The text content to wrap (defaults to empty string).
- * @param tag - Optional element tag name.
- * @param attributes - Optional attributes; only valid when `tag` is provided.
- * @throws {TypeError} When `attributes` are provided without a `tag`.
  */
 function fromContent(content: string): {
   elements: [{ type: "text"; text: string }] | [];
 };
+/**
+ * Creates a full element wrapping the given text content.
+ * @param content - The text content to wrap (defaults to empty string).
+ * @param tag - Element tag name.
+ * @param attributes - Optional attributes.
+ */
 function fromContent(
   content: string,
   tag: string,

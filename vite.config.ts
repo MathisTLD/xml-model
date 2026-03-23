@@ -11,8 +11,11 @@ export default defineConfig(() => {
     },
     plugins: [
       Lib({
-        // FIXME: typedocs fails at build
-        typedoc: false,
+        typedoc: {
+          // see "TypeDoc does not show inherited fields from `.extend()` subclasses"
+          entryPoints: ["./src/index.ts", "./src/xml/index.ts"],
+          entryPointStrategy: "resolve",
+        },
       }),
     ],
     test: {
