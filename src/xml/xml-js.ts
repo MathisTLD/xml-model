@@ -1,4 +1,4 @@
-import { xml2js, js2xml, type Options, type Element } from "xml-js";
+import { xml2js, js2xml } from "xml-js";
 import { z } from "zod";
 
 export const ZXMLElementNode = z.object({
@@ -43,7 +43,130 @@ export type XMLRoot = { elements: XMLNode[] };
 type EmptyObj = Record<PropertyKey, never>;
 export type XMLVoid = EmptyObj;
 
-export type ParseOptions = Omit<Options.XML2JS, "compact">;
+// TODO: audit these option types and remove anything we don't want to expose/support
+
+type IgnoreOptions = {
+  /** Whether to ignore the XML declaration (`<?xml?>`). @default false */
+  ignoreDeclaration?: boolean;
+  /** Whether to ignore processing instructions (`<?go there?>`). @default false */
+  ignoreInstruction?: boolean;
+  /** Whether to ignore element attributes. @default false */
+  ignoreAttributes?: boolean;
+  /** Whether to ignore comments (`<!-- -->`). @default false */
+  ignoreComment?: boolean;
+  /** Whether to ignore CData sections (`<![CDATA[ ]]>`). @default false */
+  ignoreCdata?: boolean;
+  /** Whether to ignore DOCTYPE declarations. @default false */
+  ignoreDoctype?: boolean;
+  /** Whether to ignore text content inside elements. @default false */
+  ignoreText?: boolean;
+};
+
+type ChangingKeyNames = {
+  /** Override the key name used for the declaration property. @default "declaration" */
+  declarationKey?: string;
+  /** Override the key name used for processing instructions. @default "instruction" */
+  instructionKey?: string;
+  /** Override the key name used for element attributes. @default "attributes" */
+  attributesKey?: string;
+  /** Override the key name used for text content. @default "text" */
+  textKey?: string;
+  /** Override the key name used for CData sections. @default "cdata" */
+  cdataKey?: string;
+  /** Override the key name used for DOCTYPE. @default "doctype" */
+  doctypeKey?: string;
+  /** Override the key name used for comments. @default "comment" */
+  commentKey?: string;
+  /** Override the key name used for the parent back-reference (when `addParent` is enabled). @default "parent" */
+  parentKey?: string;
+  /** Override the key name used for node type. @default "type" */
+  typeKey?: string;
+  /** Override the key name used for element name. @default "name" */
+  nameKey?: string;
+  /** Override the key name used for child elements array. @default "elements" */
+  elementsKey?: string;
+};
+
+/** Options for parsing XML into a JS object tree. */
+export type ParseOptions = IgnoreOptions &
+  ChangingKeyNames & {
+    /** Whether to trim whitespace surrounding text content. @default false */
+    trim?: boolean;
+    /**
+     * Whether to replace `&`, `<`, `>` with their XML entities in text nodes.
+     * @deprecated See https://github.com/nashwaan/xml-js/issues/26
+     * @default false
+     */
+    sanitize?: boolean;
+    /** Whether to coerce numeric and boolean text values to their native JS types. @default false */
+    nativeType?: boolean;
+    /**
+     * Whether to add a `parent` property on each element pointing back to its parent.
+     * Useful for upward traversal but creates circular references.
+     * @default false
+     */
+    addParent?: boolean;
+    /**
+     * Whether to always wrap sub-elements in an array, even when there is only one.
+     * Pass an array of element names to restrict this behaviour to those names only.
+     * Only applicable in compact mode.
+     * @default false
+     */
+    alwaysArray?: boolean | Array<string>;
+    /**
+     * Whether to always emit an `elements` array even on empty elements.
+     * `<a></a>` becomes `{ elements: [{ type: "element", name: "a", elements: [] }] }`
+     * instead of `{ elements: [{ type: "element", name: "a" }] }`.
+     * Only applicable in non-compact mode.
+     * @default false
+     */
+    alwaysChildren?: boolean;
+    /**
+     * Whether to parse the contents of processing instructions as attributes.
+     * `<?go to="there"?>` becomes `{ go: { attributes: { to: "there" } } }`
+     * instead of `{ go: 'to="there"' }`.
+     * @default false
+     */
+    instructionHasAttributes?: boolean;
+    /** Whether to preserve whitespace-only text nodes that appear between elements. @default false */
+    captureSpacesBetweenElements?: boolean;
+    /** Custom processing hook called for each DOCTYPE value. */
+    doctypeFn?: (value: string, parentElement: object) => void;
+    /** Custom processing hook called for each processing instruction value. */
+    instructionFn?: (
+      instructionValue: string,
+      instructionName: string,
+      parentElement: string,
+    ) => void;
+    /** Custom processing hook called for each CData section. */
+    cdataFn?: (value: string, parentElement: object) => void;
+    /** Custom processing hook called for each comment. */
+    commentFn?: (value: string, parentElement: object) => void;
+    /** Custom processing hook called for each text node. */
+    textFn?: (value: string, parentElement: object) => void;
+    /** Custom processing hook called for each processing instruction name. */
+    instructionNameFn?: (
+      instructionName: string,
+      instructionValue: string,
+      parentElement: string,
+    ) => void;
+    /** Custom processing hook called for each element name. */
+    elementNameFn?: (value: string, parentElement: object) => void;
+    /** Custom processing hook called for each attribute name. */
+    attributeNameFn?: (
+      attributeName: string,
+      attributeValue: string,
+      parentElement: string,
+    ) => void;
+    /** Custom processing hook called for each attribute value. */
+    attributeValueFn?: (
+      attributeValue: string,
+      attributeName: string,
+      parentElement: string,
+    ) => void;
+    /** Custom processing hook called for the whole attributes object of an element. */
+    attributesFn?: (value: string, parentElement: string) => void;
+  };
 
 function parse(xml: string, options: ParseOptions = {}): XMLRoot {
   const strippedOptions = { ...options };
@@ -54,21 +177,83 @@ function parse(xml: string, options: ParseOptions = {}): XMLRoot {
   throw new Error("Got empty XML");
 }
 
-export type StringifyOptions = Options.JS2XML;
+/** Options for serializing a JS object tree back to XML. */
+export type StringifyOptions = IgnoreOptions &
+  ChangingKeyNames & {
+    /** Number of spaces (or a string like `'\t'`) to use for indenting XML output. @default 0 */
+    spaces?: number | string;
+    /** Whether to indent text nodes onto their own line when `spaces` is set. @default false */
+    indentText?: boolean;
+    /** Whether to write CData sections on a new indented line. @default false */
+    indentCdata?: boolean;
+    /** Whether to print each attribute on its own indented line (when `spaces` is set). @default false */
+    indentAttributes?: boolean;
+    /** Whether to indent processing instructions onto their own line. @default false */
+    indentInstruction?: boolean;
+    /** Whether to emit empty elements as full tag pairs (`<a></a>`) instead of self-closing (`<a/>`). @default false */
+    fullTagEmptyElement?: boolean;
+    /** Whether to omit quotes around attribute values that are native JS types (numbers, booleans). @default false */
+    noQuotesForNativeAttributes?: boolean;
+    /** Custom processing hook called for each DOCTYPE value. */
+    doctypeFn?: (value: string, currentElementName: string, currentElementObj: object) => void;
+    /** Custom processing hook called for each processing instruction value. */
+    instructionFn?: (
+      instructionValue: string,
+      instructionName: string,
+      currentElementName: string,
+      currentElementObj: object,
+    ) => void;
+    /** Custom processing hook called for each CData section. */
+    cdataFn?: (value: string, currentElementName: string, currentElementObj: object) => void;
+    /** Custom processing hook called for each comment. */
+    commentFn?: (value: string, currentElementName: string, currentElementObj: object) => void;
+    /** Custom processing hook called for each text node. */
+    textFn?: (value: string, currentElementName: string, currentElementObj: object) => void;
+    /** Custom processing hook called for each processing instruction name. */
+    instructionNameFn?: (
+      instructionName: string,
+      instructionValue: string,
+      currentElementName: string,
+      currentElementObj: object,
+    ) => void;
+    /** Custom processing hook called for each element name. */
+    elementNameFn?: (value: string, currentElementName: string, currentElementObj: object) => void;
+    /** Custom processing hook called for each attribute name. */
+    attributeNameFn?: (
+      attributeName: string,
+      attributeValue: string,
+      currentElementName: string,
+      currentElementObj: object,
+    ) => void;
+    /** Custom processing hook called for each attribute value. */
+    attributeValueFn?: (
+      attributeValue: string,
+      attributeName: string,
+      currentElementName: string,
+      currentElementObj: object,
+    ) => void;
+    /** Custom processing hook called for the whole attributes object of an element. */
+    attributesFn?: (value: string, currentElementName: string, currentElementObj: object) => void;
+    /**
+     * Per-element override for `fullTagEmptyElement`.
+     * Return `true` to emit a full tag pair for the given element, `false` for self-closing.
+     */
+    fullTagEmptyElementFn?: (currentElementName: string, currentElementObj: object) => void;
+  };
 function stringify(xml: XMLRoot, options: StringifyOptions = {}) {
   return js2xml(xml, options);
 }
 
-function isRoot(xml: Element): xml is XMLRoot {
+function isRoot(xml: object): xml is XMLRoot {
   const keys = Object.keys(xml);
-  return keys.length === 1 && Array.isArray(xml.elements);
+  return keys.length === 1 && "elements" in xml && Array.isArray(xml.elements);
 }
 
 function elementFromRoot(root: XMLRoot): XMLElementNode | undefined {
   return root.elements.find((el) => el.type === "element");
 }
 
-function isEmpty(xml: Element): xml is XMLVoid {
+function isEmpty(xml: object): xml is XMLVoid {
   // TODO: handle other cases where properties exist but are undefined ?
   return Object.keys(xml).length === 0;
 }

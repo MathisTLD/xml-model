@@ -34,9 +34,7 @@
     "fmt:check": "vp fmt --check",
     "prepare": "vp config"
   },
-  "dependencies": {
-    "xml-js": "^1.6.11"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/node": "^24.10.11",
     "marmotte": "^0.4.4",
@@ -44,7 +42,8 @@
     "vite-plus": "latest",
     "vitepress": "^2.0.0-alpha.16",
     "vitepress-plugin-llms": "^1.11.0",
-    "vitest": "npm:@voidzero-dev/vite-plus-test@latest"
+    "vitest": "npm:@voidzero-dev/vite-plus-test@latest",
+    "xml-js": "^1.6.11"
   },
   "peerDependencies": {
     "zod": "^4.1.0"
