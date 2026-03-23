@@ -43,8 +43,6 @@ export type XMLRoot = { elements: XMLNode[] };
 type EmptyObj = Record<PropertyKey, never>;
 export type XMLVoid = EmptyObj;
 
-// TODO: audit these option types and remove anything we don't want to expose/support
-
 type IgnoreOptions = {
   /** Whether to ignore the XML declaration (`<?xml?>`). @default false */
   ignoreDeclaration?: boolean;
@@ -107,21 +105,6 @@ export type ParseOptions = IgnoreOptions &
      */
     addParent?: boolean;
     /**
-     * Whether to always wrap sub-elements in an array, even when there is only one.
-     * Pass an array of element names to restrict this behaviour to those names only.
-     * Only applicable in compact mode.
-     * @default false
-     */
-    alwaysArray?: boolean | Array<string>;
-    /**
-     * Whether to always emit an `elements` array even on empty elements.
-     * `<a></a>` becomes `{ elements: [{ type: "element", name: "a", elements: [] }] }`
-     * instead of `{ elements: [{ type: "element", name: "a" }] }`.
-     * Only applicable in non-compact mode.
-     * @default false
-     */
-    alwaysChildren?: boolean;
-    /**
      * Whether to parse the contents of processing instructions as attributes.
      * `<?go to="there"?>` becomes `{ go: { attributes: { to: "there" } } }`
      * instead of `{ go: 'to="there"' }`.
@@ -169,10 +152,11 @@ export type ParseOptions = IgnoreOptions &
   };
 
 function parse(xml: string, options: ParseOptions = {}): XMLRoot {
-  const strippedOptions = { ...options };
-  // ensure compact mode can't be used
-  delete strippedOptions["compact"];
-  const res = xml2js(xml, strippedOptions);
+  if ("compact" in options)
+    throw new Error("xml-model always uses non-compact mode (compact is forced to false)");
+  if ("alwaysChildren" in options)
+    throw new Error("xml-model always parses with alwaysChildren: true");
+  const res = xml2js(xml, { ...options, compact: false, alwaysChildren: true });
   if ("elements" in res) return res as XMLRoot;
   throw new Error("Got empty XML");
 }
@@ -241,7 +225,9 @@ export type StringifyOptions = IgnoreOptions &
     fullTagEmptyElementFn?: (currentElementName: string, currentElementObj: object) => void;
   };
 function stringify(xml: XMLRoot, options: StringifyOptions = {}) {
-  return js2xml(xml, options);
+  if ("compact" in options)
+    throw new Error("xml-model always uses non-compact mode (compact is forced to false)");
+  return js2xml(xml, { ...options, compact: false });
 }
 
 function isRoot(xml: object): xml is XMLRoot {
@@ -266,11 +252,14 @@ function isEmpty(xml: object): xml is XMLVoid {
  * @throws {TypeError} When the element has multiple or non-text children.
  */
 function getContent(xml: XMLElement) {
-  if (xml.elements?.length === 1) {
+  // now that `alwaysChildren: true` is enforced xml.elements is always present but
+  // it can be empty which means empty text
+  if (!xml.elements.length) return "";
+  if (xml.elements.length === 1) {
+    // TODO: should handle more complexe cases when node+comments ? not really useful for now but could be needed one day
     const content = xml.elements[0];
     if (content.type === "text") return content.text;
   }
-  if (!xml.elements) return "";
   throw new TypeError(`can't get text from XMLElement: ${JSON.stringify(xml)}`);
 }
 
