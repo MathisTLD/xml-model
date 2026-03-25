@@ -184,14 +184,33 @@ describe("arrays (inline)", () => {
     expect(result.chapters).toEqual(["One", "Two", "Three"]);
   });
 
-  // FIXME: not working for now but would work if tagname was specified for the schema inside the array
-  // this might be left like this
-  it.skip("roundtrips inline array", () => {
+  it("encodes inline array using property tagname", () => {
+    const out = xmlCodec(Schema).encode({ chapters: ["One", "Two", "Three"] });
+    expect(out).toBe(
+      "<book><chapter>One</chapter><chapter>Two</chapter><chapter>Three</chapter></book>",
+    );
+  });
+
+  it("roundtrips inline array", () => {
     const xmlStr =
       "<book><chapter>One</chapter><chapter>Two</chapter><chapter>Three</chapter></book>";
     const out = roundtrip(Schema, xmlStr);
     const reparsed = xmlCodec(Schema).decode(out);
     expect(reparsed.chapters).toEqual(["One", "Two", "Three"]);
+  });
+
+  it("overrides element root tagname with inline array property tagname", () => {
+    const SchemaWithRoot = xml.root(
+      z.object({
+        chapters: xml.prop(z.array(xml.root(z.string(), { tagname: "section" })), {
+          inline: true,
+          tagname: "chapter",
+        }),
+      }),
+      { tagname: "book" },
+    );
+    const out = xmlCodec(SchemaWithRoot).encode({ chapters: ["One", "Two"] });
+    expect(out).toBe("<book><chapter>One</chapter><chapter>Two</chapter></book>");
   });
 });
 

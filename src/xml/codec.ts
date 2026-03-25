@@ -176,8 +176,12 @@ export function normalizeCodecOptions<S extends z.ZodType>(
           return;
         }
         if (property.options.inlineProperty) {
-          // unwrap the result
-          ctx.result.elements.push(...res.elements);
+          // Unwrap and re-tag: the property tagname overrides any root tagname on the element schema.
+          ctx.result.elements.push(
+            ...res.elements.map((el) =>
+              el.type === "element" ? { ...el, name: property.tagname } : el,
+            ),
+          );
         } else {
           ctx.result.elements.push(res);
         }
@@ -255,10 +259,10 @@ function resolveDefault<S extends z.ZodType>(schema: S) {
 registerDefault((schema) => {
   // array
   if (schema instanceof z.ZodArray) {
-    const elOptions = resolveCodecOptions(
-      // FIXME: why is this cast needed ?
-      schema.def.element as z.ZodType,
-    );
+    const elSchema = schema.def.element;
+    if (!isZodType(elSchema)) throw new Error(`Expected a ZodType, got ${elSchema}`);
+    const elOptions = resolveCodecOptions(elSchema);
+    const elHasOwnTagname = Boolean(getUserOptions(elSchema).tagname);
     return normalizeCodecOptions(schema, {
       decode(ctx) {
         const { xml } = ctx;
@@ -274,11 +278,19 @@ registerDefault((schema) => {
         const values = ctx.data;
         // FIXME: should not need this assertion, typescript should know we ctx.data is an array
         if (!Array.isArray(values)) throw new Error("expected array");
+        // When elements have no explicit tagname, fall back to the array's own tagname.
+        // This is needed for inline arrays where the property tagname must be applied
+        // to each individual element (e.g. xml.prop(z.array(z.string()), { inline: true, tagname: "chapter" })).
+        const elOptsForEncode = elHasOwnTagname
+          ? elOptions
+          : { ...elOptions, tagname: ctx.options.tagname };
         return {
           type: "element",
           name: ctx.options.tagname(ctx),
           attributes: {},
-          elements: values.map((v) => elOptions.encode({ options: elOptions, data: v })),
+          elements: values.map((v) =>
+            elOptsForEncode.encode({ options: elOptsForEncode, data: v }),
+          ),
         };
       },
     });
