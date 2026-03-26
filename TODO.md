@@ -117,4 +117,27 @@ take precedence regardless.
 
 **Leave for later** unless there is a concrete use case driving it.
 
+### XML codec operates at inSchema level (cleaner transform layering)
+
+Currently the ZodCodec XML handler applies `def.transform`/`def.reverseTransform` directly,
+making the XML codec responsible for both serialisation and type transforms. The cleaner
+design is a strict two-layer pipeline:
+
+```
+decode: XML  →  inSchema types  (xml codec)  →  outSchema types  (dataSchema.parse)
+encode: outSchema types  (dataSchema.encode)  →  inSchema types  →  XML  (xml codec)
+```
+
+Concretely:
+
+- ZodCodec handler: delegate entirely to inSchema for decode/encode; no manual transform calls
+- `fromXML`: call `dataSchema.parse(rawData)` after `decode()` to apply forward transforms
+- `toXML`: call `dataSchema.encode(data)` before `encode()` to apply reverse transforms
+
+**Notable side effect:** `dataSchema.parse()` strips unknown keys, so non-XMLBase classes
+would lose the accidental element-ordering preservation they currently get. This aligns
+implementation with documented behaviour ("use XMLBase to opt in").
+
+**Status: design only — not yet implemented**
+
 <!-- #endregion roadmap -->
