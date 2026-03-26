@@ -414,14 +414,21 @@ registerDefault((schema) => {
     const inputCodecOptions = resolveCodecOptions(inSchema);
     return normalizeCodecOptions(schema, {
       decode({ xml }) {
+        // First decode the raw XML using the input schema's codec (e.g. string from XML text),
+        // then apply the user-provided forward transform (in → out, e.g. string → Date).
+        // We call def.transform directly to bypass Zod's parse pipeline — the input was
+        // already decoded by the XML codec and does not need schema validation again.
         const input = inputCodecOptions.decode({ options: inputCodecOptions, xml });
-        // FIXME: is this the correct behavior ?
         return schema.def.transform(input, { value: input, issues: [] });
       },
       encode(ctx) {
-        // `schema.encode would recursively re-encode child classes`
-        // as we only wanna re-encode the top level we should use `outSchema.encode` instead
-        const data = outSchema.encode(ctx.data);
+        // Apply the user-provided reverse transform (out → in), e.g. Date → ISO string.
+        // We call def.reverseTransform directly rather than schema.encode() because the latter
+        // recursively validates + re-parses nested data, which breaks model codecs (it would
+        // double-convert nested instances that the XML encoder needs to process itself).
+        const data = schema.def.reverseTransform
+          ? schema.def.reverseTransform(ctx.data, { value: ctx.data, issues: [] })
+          : outSchema.encode(ctx.data);
         // Propagate the caller's tagname override so that a property-level tagname
         // (e.g. `xml.prop(Schema, { tagname: "audio-in" })`) is not silently replaced
         // by the schema's own root tagname (e.g. `xml.root({ tagname: "audio" })`).

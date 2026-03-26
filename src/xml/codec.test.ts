@@ -662,6 +662,42 @@ describe("XML_STATE preserved for nested model instances", () => {
 });
 
 // -----------------------------------------------------------------------
+// z.codec type transforms (e.g. string → Date)
+// -----------------------------------------------------------------------
+
+describe("z.codec type transforms", () => {
+  const isoDate = z.codec(z.string(), z.date(), {
+    decode: (iso) => new Date(iso),
+    encode: (date) => date.toISOString(),
+  });
+
+  class EventModel extends xmlModel(z.object({ title: z.string(), publishedAt: isoDate }), {
+    tagname: "event",
+  }) {}
+
+  const iso = "2024-01-15T00:00:00.000Z";
+  const xmlStr = `<event><title>Launch</title><published-at>${iso}</published-at></event>`;
+
+  it("decodes ISO string to Date instance", () => {
+    const instance = EventModel.fromXML(xmlStr);
+    expect(instance.publishedAt).toBeInstanceOf(Date);
+    expect(instance.publishedAt.toISOString()).toBe(iso);
+  });
+
+  it("re-encodes Date back to ISO string", () => {
+    const instance = EventModel.fromXML(xmlStr);
+    const out = EventModel.toXMLString(instance);
+    expect(out).toBe(xmlStr);
+  });
+
+  it("roundtrips without losing the Date value", () => {
+    const instance = EventModel.fromXML(xmlStr);
+    const reparsed = EventModel.fromXML(EventModel.toXMLString(instance));
+    expect(reparsed.publishedAt.toISOString()).toBe(iso);
+  });
+});
+
+// -----------------------------------------------------------------------
 // XMLCodecError path tracking
 // -----------------------------------------------------------------------
 

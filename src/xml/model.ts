@@ -71,14 +71,10 @@ export function xmlModel<S extends z.ZodObject<any>>(
       if (XML.isRoot(input)) {
         input = XML.elementFromRoot(input);
       }
-      const schema = this.dataSchema;
-      const inputData = decode(this.dataSchema, input);
-      const xmlState = (inputData as any)[XML_STATE_KEY];
-      const parsed = schema.parse(inputData);
-      // Re-attach in case the schema doesn't include XML_STATE_KEY (Zod strips unknown keys).
-      // For schemas that DO include it via xmlStateSchema(), this is a harmless overwrite.
-      (parsed as any)[XML_STATE_KEY] = xmlState;
-      return this.fromData(parsed);
+      // decode() already applies all ZodCodec transforms, defaults, and optionals —
+      // calling schema.parse() on the result would re-run transforms on already-transformed
+      // values (e.g. a Date where the schema expects a string input), causing type errors.
+      return this.fromData(decode(this.dataSchema, input) as z.output<typeof this.dataSchema>);
     }
 
     static toXML<T extends ModelConstructor>(this: T, instance: InstanceType<T>): XMLRoot {

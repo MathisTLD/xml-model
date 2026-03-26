@@ -135,6 +135,31 @@ All `<model>` items live inside the `<models>` container. The tag name of indivi
 | Multiple types | Yes — mix freely by tag name    | No — single homogeneous list            |
 | Typical use    | Heterogeneous sibling elements  | Homogeneous list with a named container |
 
+## Type transforms — `z.codec`
+
+Use `z.codec(inputSchema, outputSchema, { decode, encode })` when a field should be stored as one type in XML but exposed as a different type in your model.
+
+A common use-case is ISO 8601 dates: the XML element contains a plain string, but the parsed instance holds a native `Date`.
+
+<<< @/../src/xml/examples.ts#event
+
+```ts
+const event = Event.fromXML(`
+  <event>
+    <title>Launch</title>
+    <published-at>2024-01-15T00:00:00.000Z</published-at>
+  </event>
+`);
+
+event.publishedAt; // Date instance — 2024-01-15T00:00:00.000Z
+Event.toXMLString(event);
+// <event><title>Launch</title><published-at>2024-01-15T00:00:00.000Z</published-at></event>
+```
+
+`decode` receives the raw XML-decoded value (a `string` here) and returns the transformed value. `encode` receives the transformed value and returns the raw form that goes back into XML. The two are inverses of each other.
+
+> **Note:** `z.codec` transforms are applied by the XML codec during `fromXML`/`toXMLString`. Do not combine them with a subsequent `schema.parse()` call — that would re-run the input validation on the already-transformed output value and cause a type error.
+
 ## Custom decode/encode
 
 `xml.prop()` and `xml.root()` accept `decode` and `encode` hooks that let you intercept and augment the default codec behavior without replacing it entirely.

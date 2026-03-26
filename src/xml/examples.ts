@@ -3,6 +3,32 @@ import { z } from "zod";
 import { xml } from "./schema-meta";
 import { xmlModel } from "./model";
 
+// #region event
+/** ISO 8601 date string ↔ `Date` codec. */
+const isoDate = z.codec(z.string(), z.date(), {
+  decode: (iso) => new Date(iso),
+  encode: (date) => date.toISOString(),
+});
+
+/**
+ * An event with a typed `Date` field stored as an ISO 8601 string in XML.
+ * Demonstrates using `z.codec` to transform a raw XML string into a native JS type.
+ */
+export class Event extends xmlModel(
+  z.object({
+    /** Event title: `<title>…</title>` */
+    title: z.string(),
+    /**
+     * Publication date, stored as an ISO 8601 string in XML but exposed as a
+     * native `Date` on the parsed instance.
+     * `<published-at>2024-01-15T00:00:00.000Z</published-at>`
+     */
+    publishedAt: isoDate,
+  }),
+  { tagname: "event" },
+) {}
+// #endregion event
+
 // #region engine
 /**
  * A car engine. Demonstrates a basic nested class with one XML attribute
