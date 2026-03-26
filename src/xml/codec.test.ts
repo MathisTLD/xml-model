@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vite-plus/test";
 import { z } from "zod";
-import { xmlCodec } from "./codec";
+import { xmlCodec, xmlStateSchema, XML_STATE_KEY } from "./codec";
 import { xml } from "./schema-meta";
-import { xmlModel } from "./model";
+import { xmlModel, XMLBase, XMLBaseWithSource } from "./model";
 
 // -----------------------------------------------------------------------
 // Helpers
@@ -218,21 +218,21 @@ describe("arrays (inline)", () => {
 // -----------------------------------------------------------------------
 
 describe("order preservation", () => {
-  const Schema = xml.root(
+  class Root extends xmlModel(
     z.object({
+      [XML_STATE_KEY]: xmlStateSchema(),
       // schema order: a, b, c
       a: z.string(),
       b: z.string(),
       c: z.string(),
     }),
     { tagname: "root" },
-  );
-  // FIXME: not supported yet (XML_STATE is stripped)
-  it.skip("preserves document order (c, a, b) not schema order (a, b, c)", () => {
+  ) {}
+
+  it("preserves document order (c, a, b) not schema order (a, b, c)", () => {
     const xmlStr = "<root><c>C</c><a>A</a><b>B</b></root>";
-    const codec = xmlCodec(Schema);
-    const parsed = codec.decode(xmlStr);
-    const out = codec.encode(parsed);
+    const instance = Root.fromXML(xmlStr);
+    const out = Root.toXMLString(instance);
     // Verify c appears before a, and a before b in output
     const cPos = out.indexOf("<c>");
     const aPos = out.indexOf("<a>");
@@ -247,20 +247,20 @@ describe("order preservation", () => {
 // -----------------------------------------------------------------------
 
 describe("unknown element passthrough", () => {
-  const Schema = xml.root(
+  class Doc extends xmlModel(
     z.object({
+      [XML_STATE_KEY]: xmlStateSchema(),
       title: z.string(),
       body: z.string(),
     }),
     { tagname: "doc" },
-  );
-  // FIXME: not supported yet (XML_STATE is stripped)
-  it.skip("preserves unknown elements at correct position", () => {
+  ) {}
+
+  it("preserves unknown elements at correct position", () => {
     const xmlStr =
       '<doc><title>T</title><unknown-tag foo="bar">content</unknown-tag><body>B</body></doc>';
-    const codec = xmlCodec(Schema);
-    const parsed = codec.decode(xmlStr);
-    const out = codec.encode(parsed);
+    const instance = Doc.fromXML(xmlStr);
+    const out = Doc.toXMLString(instance);
     // unknown-tag should be present and between title and body
     expect(out).toEqual(xmlStr);
     const titlePos = out.indexOf("<title>");
@@ -600,5 +600,63 @@ describe("regression — xml.attr with optional wrapper", () => {
   it("returns undefined for absent optional attribute", () => {
     const result = xmlCodec(Schema).decode("<book><title>Dune</title></book>");
     expect(result.lang).toBeUndefined();
+  });
+});
+
+// -----------------------------------------------------------------------
+// XML_STATE preserved for nested model instances
+// -----------------------------------------------------------------------
+
+describe("XML_STATE preserved for nested model instances", () => {
+  class Inner extends XMLBase.extend({ value: z.string() }, xml.root({ tagname: "inner" })) {}
+  class Outer extends XMLBase.extend({ inner: Inner.schema() }, xml.root({ tagname: "outer" })) {}
+
+  it("preserves unknown elements inside a nested model across a round-trip", () => {
+    const xmlStr = `<outer><inner><value>hello</value><unknown>data</unknown></inner></outer>`;
+    const instance = Outer.fromXML(xmlStr);
+    const out = Outer.toXMLString(instance);
+    expect(out).toContain("<unknown>data</unknown>");
+  });
+
+  it("preserves unknown elements at both root and nested levels simultaneously", () => {
+    const xmlStr = `<outer><root-unknown>foo</root-unknown><inner><value>hello</value><inner-unknown>bar</inner-unknown></inner></outer>`;
+    const instance = Outer.fromXML(xmlStr);
+    const out = Outer.toXMLString(instance);
+    expect(out).toContain("<root-unknown>foo</root-unknown>");
+    expect(out).toContain("<inner-unknown>bar</inner-unknown>");
+  });
+
+  it("records source XMLElement when source: true is passed to xmlStateSchema", () => {
+    class WithSource extends xmlModel(
+      z.object({ [XML_STATE_KEY]: xmlStateSchema({ source: true }), value: z.string() }),
+      { tagname: "item" },
+    ) {}
+    const instance = WithSource.fromXML("<item><value>hello</value></item>");
+    expect(instance[XML_STATE_KEY]?.source).toBeDefined();
+    expect(instance[XML_STATE_KEY]?.source?.name).toBe("item");
+  });
+
+  it("records source on nested instances when source: true is used", () => {
+    class InnerWithSource extends XMLBaseWithSource.extend(
+      { value: z.string() },
+      xml.root({ tagname: "inner" }),
+    ) {}
+    class OuterWithSource extends XMLBaseWithSource.extend(
+      { inner: InnerWithSource.schema() },
+      xml.root({ tagname: "outer" }),
+    ) {}
+    const instance = OuterWithSource.fromXML("<outer><inner><value>hello</value></inner></outer>");
+    expect(instance.inner[XML_STATE_KEY]?.source?.name).toBe("inner");
+  });
+
+  it("preserves unknown elements in arrays of nested models", () => {
+    class List extends XMLBase.extend(
+      { items: xml.prop(z.array(Inner.schema()), { inline: true, tagname: "inner" }) },
+      xml.root({ tagname: "list" }),
+    ) {}
+    const xmlStr = `<list><inner><value>a</value><extra>1</extra></inner><inner><value>b</value></inner></list>`;
+    const instance = List.fromXML(xmlStr);
+    const out = List.toXMLString(instance);
+    expect(out).toContain("<extra>1</extra>");
   });
 });

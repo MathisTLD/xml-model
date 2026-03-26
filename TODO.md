@@ -14,48 +14,6 @@ xml
   .optional();
 ```
 
-### `XML_STATE` not preserved for nested objects through `schema.parse()`
-
-`XML_STATE` is a non-enumerable symbol attached to decoded plain-data objects. It contains
-`fieldOrder: Array<string | XMLElement>` where `XMLElement` entries are **unknown/unsupported
-elements** that must be re-emitted verbatim on encode.
-
-`fromXML` already saves/restores `XML_STATE` around `schema.parse(inputData)` — but only
-at the **top level**. For nested model instances (e.g. `users: User[]`), `schema.parse()`
-runs `User.schema()` on each already-created User instance, which:
-
-1. Reads the instance's enumerable properties through the ZodObject chain
-2. Creates a **new** plain data object (stripping the non-enumerable XML_STATE)
-3. Wraps it in a new User instance via `fromData()`
-
-Re-attaching after the fact won't work either — the new objects have no connection to the
-originals, so there's no way to map old states to new ones.
-
-**Fix: remove `schema.parse(inputData)` from `fromXML`.**
-
-The `decode()` step already does everything `schema.parse()` does:
-
-- ZodCodec decode handler calls `schema.def.transform()` = `fromData()` for model fields
-- ZodDefault handler returns `getDefault()` when `ctx.xml` is null
-- ZodOptional handler returns `undefined` when `ctx.xml` is null
-- All primitive coercion happens in the typed decode handlers
-
-So `schema.parse()` is purely redundant in `fromXML` — and harmful because it loses
-`XML_STATE` on nested objects.
-
-```ts
-// src/xml/model.ts — fromXML
-static fromXML(this: T, input: string | XMLRoot | XMLElement): InstanceType<T> {
-  if (typeof input === "string") input = XML.parse(input);
-  if (XML.isRoot(input)) input = XML.elementFromRoot(input);
-  const inputData = decode(this.dataSchema, input);
-  // Don't call schema.parse() — it recreates nested data objects, stripping the
-  // non-enumerable XML_STATE symbol and losing unknown-element passthrough.
-  // decode() already applies all transforms and defaults.
-  return this.fromData(inputData as unknown as z.output<typeof this.dataSchema>);
-}
-```
-
 <!-- #endregion bugs -->
 
 ---

@@ -88,6 +88,53 @@ car instanceof Vehicle; // false — no shared prototype
 
 Use this when the class hierarchy doesn't matter and you just want to share field definitions.
 
+## Round-trip preservation
+
+By default, `xmlModel()` does not preserve element ordering or unknown elements across a decode → encode cycle. Use `XMLBase` or `XMLBaseWithSource` as the base class to opt in.
+
+### `XMLBase`
+
+Extend `XMLBase` instead of `xmlModel()` to preserve:
+
+- **Element ordering** — elements are re-emitted in the order they appeared in the source XML, not in schema-definition order.
+- **Unknown elements** — elements with no matching schema field are passed through verbatim on re-encode.
+
+```ts
+import { XMLBase, xml } from "xml-model";
+
+class Device extends XMLBase.extend({ name: z.string() }, xml.root({ tagname: "device" })) {}
+
+const device = Device.fromXML(`
+  <device>
+    <name>Router</name>
+    <vendor-extension>custom data</vendor-extension>
+  </device>
+`);
+
+Device.toXMLString(device);
+// <device><name>Router</name><vendor-extension>custom data</vendor-extension></device>
+```
+
+This also applies to nested model instances — unknown elements inside a nested class are preserved as long as that class also extends `XMLBase`.
+
+### `XMLBaseWithSource`
+
+`XMLBaseWithSource` behaves identically to `XMLBase` but additionally stores the original `XMLElement` on every instance.
+
+```ts
+import { XMLBaseWithSource, XML_STATE_KEY, xml } from "xml-model";
+
+class Device extends XMLBaseWithSource.extend(
+  { name: z.string() },
+  xml.root({ tagname: "device" }),
+) {}
+
+const device = Device.fromXML(`<device><name>Router</name></device>`);
+device[XML_STATE_KEY]?.source; // the original XMLElement
+```
+
+> `XML_STATE_KEY` and `xmlStateSchema` are exported from `xml-model/xml/codec` for advanced use (custom base classes, direct state access), but are not part of the standard public API.
+
 ## Direct JS class inheritance
 
 Extend a model class with a regular `class … extends` to add methods without changing the schema:
@@ -106,15 +153,15 @@ car.isElectric(); // true
 car.label(); // "2021 Honda" — inherited from Vehicle
 ```
 
-## Two-step pattern (`xml.model` + `xmlModel`)
+## Two-step pattern (`xml.root` + `xmlModel`)
 
-Annotate a schema separately with `xml.model()` and then pass it to `xmlModel()`. Useful when you want to share the schema across multiple contexts:
+Annotate a schema separately with `xml.root()` and then pass it to `xmlModel()`. Useful when you want to share the schema across multiple contexts:
 
 ```ts
 import { xml, xmlModel } from "xml-model";
 import { z } from "zod";
 
-const VehicleSchema = xml.model(z.object({ make: z.string() }), { tagname: "vehicle" });
+const VehicleSchema = xml.root(z.object({ make: z.string() }), { tagname: "vehicle" });
 
 class SimpleVehicle extends xmlModel(VehicleSchema) {}
 SimpleVehicle.dataSchema === VehicleSchema; // true

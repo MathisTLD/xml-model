@@ -3,7 +3,7 @@ import { XML, type XMLElement, type StringifyOptions } from "./xml-js";
 import type { XMLRoot } from "./xml-js";
 import { model } from "../model";
 import type { ModelConstructor } from "../model";
-import { decode, encode, XML_STATE } from "./codec";
+import { decode, encode, XML_STATE_KEY, xmlStateSchema } from "./codec";
 import type { UserCodecOptions } from "./codec";
 import { root } from "./schema-meta";
 
@@ -28,6 +28,30 @@ export type XmlModelConstructor<
   toXMLString(instance: z.infer<S>, options?: StringifyOptions): string;
 };
 
+/**
+ * Base class for xmlModel classes. Preserves element ordering and unknown elements
+ * through `schema.parse()` for nested model instances.
+ *
+ * @example
+ * class Device extends XMLBase.extend(
+ *   { name: z.string() },
+ *   xml.root({ tagname: "device" }),
+ * ) {}
+ */
+export const XMLBase = xmlModel(z.object({ [XML_STATE_KEY]: xmlStateSchema() }));
+
+/**
+ * Like {@link XMLBase}, but also records the original `XMLElement` as `.source`
+ * on each instance's XML state.
+ *
+ * @example
+ * const device = Device.fromXML(`<device>…</device>`);
+ * device[XML_STATE_KEY]?.source; // XMLElement
+ */
+export const XMLBaseWithSource = xmlModel(
+  z.object({ [XML_STATE_KEY]: xmlStateSchema({ source: true }) }),
+);
+
 export function xmlModel<S extends z.ZodObject<any>>(
   schema: S,
   options?: UserCodecOptions<S>,
@@ -49,9 +73,11 @@ export function xmlModel<S extends z.ZodObject<any>>(
       }
       const schema = this.dataSchema;
       const inputData = decode(this.dataSchema, input);
-      const xmlState = (inputData as any)[XML_STATE];
+      const xmlState = (inputData as any)[XML_STATE_KEY];
       const parsed = schema.parse(inputData);
-      (parsed as any)[XML_STATE] = xmlState;
+      // Re-attach in case the schema doesn't include XML_STATE_KEY (Zod strips unknown keys).
+      // For schemas that DO include it via xmlStateSchema(), this is a harmless overwrite.
+      (parsed as any)[XML_STATE_KEY] = xmlState;
       return this.fromData(parsed);
     }
 

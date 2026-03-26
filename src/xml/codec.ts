@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { XML, type XMLElement } from "./xml-js";
-import { getUserOptions } from "./schema-meta";
+import { getUserOptions, prop } from "./schema-meta";
 import { kebabCase } from "@/util/kebab-case";
 import { isZodType } from "@/util/zod";
 
@@ -210,14 +210,52 @@ type OrderEntry = string | XMLElement;
 
 export interface XMLState {
   /** Preserves element ordering and unknown elements across a decode → encode round-trip. */
-  fieldOrder: OrderEntry[];
+  sequence: OrderEntry[];
+  /** Present when xmlStateSchema({ source: true }) is used: the original XMLElement. */
+  source?: XMLElement;
 }
 
 /**
- * Non-enumerable Symbol attached to decoded data objects (and forwarded to model instances).
- * Groups all XML codec round-trip state under a single key.
+ * String key used to store XML round-trip state on decoded data objects.
+ * Using a string (rather than a Symbol) allows Zod's schema.parse() to
+ * preserve it naturally when the key is included in the schema via xmlStateSchema().
  */
-export const XML_STATE = Symbol("xml-model.state");
+export const XML_STATE_KEY = "__xml_state" as const;
+
+/**
+ * Schema for the XML round-trip state field.
+ *
+ * Include in your base model schema under `XML_STATE_KEY` to preserve element ordering
+ * and unknown elements through Zod's `schema.parse()` for nested model instances.
+ *
+ * Pass `{ source: true }` to also record the original `XMLElement` on each instance.
+ *
+ * @example
+ * class XMLBase extends xmlModel(z.object({
+ *   [XML_STATE_KEY]: xmlStateSchema(),
+ * }), { tagname: "base" }) {}
+ *
+ * // With source recording:
+ * class XMLBase extends xmlModel(z.object({
+ *   [XML_STATE_KEY]: xmlStateSchema({ source: true }),
+ * }), { tagname: "base" }) {}
+ */
+export function xmlStateSchema(): z.ZodOptional<z.ZodCustom<XMLState>>;
+export function xmlStateSchema(options: {
+  source: true;
+}): z.ZodOptional<z.ZodCustom<XMLState & { source: XMLElement }>>;
+export function xmlStateSchema(options?: {
+  source?: boolean;
+}): z.ZodOptional<z.ZodCustom<XMLState>> {
+  return prop(z.custom<XMLState>().optional(), {
+    decode: options?.source
+      ? (ctx, _next) => {
+          ((ctx.result as any)[XML_STATE_KEY] ??= {}).source = ctx.xml;
+        }
+      : () => {},
+    encode: () => {},
+  }) as z.ZodOptional<z.ZodCustom<XMLState>>;
+}
 
 function resolvePropertiesCodecOptions<S extends z.ZodObject<any>>(
   schema: S,
@@ -318,7 +356,6 @@ registerDefault((schema) => {
         if (ctx.property.xml !== null) innerOptions.decodeAsProperty(ctx);
       },
       encodeAsProperty(ctx) {
-        console.log(ctx.property.name, ctx.property.value);
         if (typeof ctx.property.value !== "undefined") innerOptions.encodeAsProperty(ctx);
       },
     });
@@ -432,6 +469,9 @@ registerDefault(<S extends z.ZodObject>(schema: S) => {
     return normalizeCodecOptions(schema, {
       decode(ctx) {
         const sequence: OrderEntry[] = [];
+        const result: Partial<z.input<S>> & { [XML_STATE_KEY]: XMLState } = {
+          [XML_STATE_KEY]: { sequence },
+        } as any;
 
         // build the base property decoding contexts (with tagname)
         // FIXME: typescript error
@@ -506,7 +546,6 @@ registerDefault(<S extends z.ZodObject>(schema: S) => {
         }
 
         // Convert each matched field
-        const result: Partial<z.input<S>> = {};
         for (const prop in options) {
           const o = options[prop];
           const propCtx = propContexts[prop];
@@ -535,14 +574,6 @@ registerDefault(<S extends z.ZodObject>(schema: S) => {
 
         // TODO: check that all property exist (not Partial anymore)
 
-        // Attach non-enumerable XML round-trip state
-        Object.defineProperty(result, XML_STATE, {
-          value: { fieldOrder: sequence } satisfies XMLState,
-          enumerable: false,
-          writable: true,
-          configurable: true,
-        });
-
         return result as z.input<S>;
       },
       encode(ctx) {
@@ -555,7 +586,7 @@ registerDefault(<S extends z.ZodObject>(schema: S) => {
           elements: [],
         };
         const sequence =
-          ((data as any)[XML_STATE] as XMLState | undefined)?.fieldOrder ?? Object.keys(options);
+          ((data as any)[XML_STATE_KEY] as XMLState | undefined)?.sequence ?? Object.keys(options);
         for (const item of sequence) {
           if (typeof item === "string") {
             const o = options[item];
@@ -592,10 +623,7 @@ export function xmlCodec<S extends z.ZodType>(schema: S) {
     decode(xml) {
       const xmlRoot = XML.parse(xml);
       const xmlEl = XML.elementFromRoot(xmlRoot);
-      const input = decode(schema, xmlEl);
-      // FIXME: even if XML_STATE is still in `input` at this point,
-      // it will be stripped when `input` gets passed into `schema.parse`
-      return input;
+      return decode(schema, xmlEl);
     },
     encode(value) {
       // FIXME: here `value` has already been encoded into the input type of `schema`
