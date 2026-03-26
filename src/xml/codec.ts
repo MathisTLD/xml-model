@@ -4,6 +4,27 @@ import { getUserOptions, prop } from "./schema-meta";
 import { kebabCase } from "@/util/kebab-case";
 import { isZodType } from "@/util/zod";
 
+export class XMLCodecError extends Error {
+  readonly path: readonly (string | number)[];
+  readonly rawMessage: string;
+
+  constructor(rawMessage: string, path: readonly (string | number)[] = [], options?: ErrorOptions) {
+    super(path.length ? `[${path.join(".")}] ${rawMessage}` : rawMessage, options);
+    this.name = "XMLCodecError";
+    this.path = path;
+    this.rawMessage = rawMessage;
+  }
+}
+
+function rethrow(e: unknown, segment: string | number): never {
+  const cause = e instanceof XMLCodecError ? e.cause : e;
+  const path: readonly (string | number)[] =
+    e instanceof XMLCodecError ? [segment, ...e.path] : [segment];
+  const rawMessage =
+    e instanceof XMLCodecError ? e.rawMessage : e instanceof Error ? e.message : String(e);
+  throw new XMLCodecError(rawMessage, path, { cause });
+}
+
 // FIXME: these two assertion should be in ./xml-js
 export function assertSingleElement(xml: XMLElement[]): asserts xml is [XMLElement] {
   if (xml.length !== 1) throw new Error(`Expected single XML element, got ${xml.length}`);
@@ -562,14 +583,18 @@ registerDefault(<S extends z.ZodObject>(schema: S) => {
             }
           }
 
-          o.decodeAsProperty({
-            // @ts-ignore
-            options: ctx.options,
-            xml: ctx.xml,
-            // @ts-ignore
-            property: propCtx,
-            result,
-          });
+          try {
+            o.decodeAsProperty({
+              // @ts-ignore
+              options: ctx.options,
+              xml: ctx.xml,
+              // @ts-ignore
+              property: propCtx,
+              result,
+            });
+          } catch (e) {
+            rethrow(e, prop);
+          }
         }
 
         // TODO: check that all property exist (not Partial anymore)
@@ -594,18 +619,22 @@ registerDefault(<S extends z.ZodObject>(schema: S) => {
               // TODO: proper error with more context
               throw new Error(`Failed to resolve property options for sequence item ${item}`);
             }
-            o.encodeAsProperty({
-              // FIXME should not need type casts
-              options: ctx.options as CodecOptions<S>,
-              data: data as z.output<S>,
-              property: {
-                name: item,
-                options: o,
-                tagname: o.propertyTagname({ name: item, options: o }),
-                value: (data as any)[item],
-              },
-              result,
-            });
+            try {
+              o.encodeAsProperty({
+                // FIXME should not need type casts
+                options: ctx.options as CodecOptions<S>,
+                data: data as z.output<S>,
+                property: {
+                  name: item,
+                  options: o,
+                  tagname: o.propertyTagname({ name: item, options: o }),
+                  value: (data as any)[item],
+                },
+                result,
+              });
+            } catch (e) {
+              rethrow(e, item);
+            }
           } else {
             // item is an unsupported element
             // insert in sequence order

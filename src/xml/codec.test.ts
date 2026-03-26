@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vite-plus/test";
 import { z } from "zod";
-import { xmlCodec, xmlStateSchema, XML_STATE_KEY } from "./codec";
+import { xmlCodec, xmlStateSchema, XML_STATE_KEY, XMLCodecError } from "./codec";
 import { xml } from "./schema-meta";
 import { xmlModel, XMLBase, XMLBaseWithSource } from "./model";
 
@@ -658,5 +658,127 @@ describe("XML_STATE preserved for nested model instances", () => {
     const instance = List.fromXML(xmlStr);
     const out = List.toXMLString(instance);
     expect(out).toContain("<extra>1</extra>");
+  });
+});
+
+// -----------------------------------------------------------------------
+// XMLCodecError path tracking
+// -----------------------------------------------------------------------
+
+function catchError(fn: () => unknown): unknown {
+  try {
+    fn();
+  } catch (e) {
+    return e;
+  }
+  throw new Error("Expected function to throw");
+}
+
+describe("XMLCodecError", () => {
+  it("wraps a decode error with the field name as path", () => {
+    const Schema = xml.root(
+      z.object({
+        value: xml.prop(z.string(), {
+          decode() {
+            throw new Error("boom");
+          },
+        }),
+      }),
+      { tagname: "doc" },
+    );
+    const err = catchError(() =>
+      xmlCodec(Schema).decode("<doc><value>x</value></doc>"),
+    ) as XMLCodecError;
+    expect(err).toBeInstanceOf(XMLCodecError);
+    expect(err.path).toEqual(["value"]);
+  });
+
+  it("wraps an encode error with the field name as path", () => {
+    const Schema = xml.root(
+      z.object({
+        value: xml.prop(z.string(), {
+          encode() {
+            throw new Error("boom");
+          },
+        }),
+      }),
+      { tagname: "doc" },
+    );
+    const err = catchError(() => xmlCodec(Schema).encode({ value: "x" })) as XMLCodecError;
+    expect(err).toBeInstanceOf(XMLCodecError);
+    expect(err.path).toEqual(["value"]);
+  });
+
+  it("accumulates path across nested models", () => {
+    class Inner extends XMLBase.extend(
+      {
+        value: xml.prop(z.string(), {
+          decode() {
+            throw new Error("boom");
+          },
+        }),
+      },
+      xml.root({ tagname: "inner" }),
+    ) {}
+    class Outer extends XMLBase.extend({ inner: Inner.schema() }, xml.root({ tagname: "outer" })) {}
+    const err = catchError(() =>
+      Outer.fromXML("<outer><inner><value>x</value></inner></outer>"),
+    ) as XMLCodecError;
+    expect(err).toBeInstanceOf(XMLCodecError);
+    expect(err.path).toEqual(["inner", "value"]);
+  });
+
+  it("preserves the original error as cause", () => {
+    const original = new Error("original");
+    const Schema = xml.root(
+      z.object({
+        value: xml.prop(z.string(), {
+          decode() {
+            throw original;
+          },
+        }),
+      }),
+      { tagname: "doc" },
+    );
+    const err = catchError(() =>
+      xmlCodec(Schema).decode("<doc><value>x</value></doc>"),
+    ) as XMLCodecError;
+    expect(err.cause).toBe(original);
+  });
+
+  it("cause is preserved through nested rethrows", () => {
+    const original = new Error("original");
+    class Inner extends XMLBase.extend(
+      {
+        value: xml.prop(z.string(), {
+          decode() {
+            throw original;
+          },
+        }),
+      },
+      xml.root({ tagname: "inner" }),
+    ) {}
+    class Outer extends XMLBase.extend({ inner: Inner.schema() }, xml.root({ tagname: "outer" })) {}
+    const err = catchError(() =>
+      Outer.fromXML("<outer><inner><value>x</value></inner></outer>"),
+    ) as XMLCodecError;
+    expect(err.cause).toBe(original);
+  });
+
+  it("message includes path prefix", () => {
+    const Schema = xml.root(
+      z.object({
+        value: xml.prop(z.string(), {
+          decode() {
+            throw new Error("boom");
+          },
+        }),
+      }),
+      { tagname: "doc" },
+    );
+    const err = catchError(() =>
+      xmlCodec(Schema).decode("<doc><value>x</value></doc>"),
+    ) as XMLCodecError;
+    expect(err.message).toBe("[value] boom");
   });
 });
