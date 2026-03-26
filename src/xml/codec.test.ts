@@ -3,7 +3,6 @@ import { z } from "zod";
 import { xmlCodec } from "./codec";
 import { xml } from "./schema-meta";
 import { xmlModel } from "./model";
-import { XML } from "./xml-js";
 
 // -----------------------------------------------------------------------
 // Helpers
@@ -469,5 +468,137 @@ describe("ZodCodec tagname propagation", () => {
     const out = xmlCodec(OuterSchema).encode(result);
     const reparsed = xmlCodec(OuterSchema).decode(out);
     expect(reparsed.child.value).toBe("hello");
+  });
+});
+
+// -----------------------------------------------------------------------
+// ZodDefault tagname inheritance
+// -----------------------------------------------------------------------
+
+describe("ZodDefault tagname inheritance", () => {
+  const Schema = xml.root(
+    z.object({
+      title: xml.prop(z.string(), { tagname: "title" }).default("untitled"),
+    }),
+    { tagname: "book" },
+  );
+
+  it("decodes element using inherited tagname through ZodDefault wrapper", () => {
+    const result = xmlCodec(Schema).decode("<book><title>Dune</title></book>");
+    expect(result.title).toBe("Dune");
+  });
+
+  it("uses default value when element is absent", () => {
+    const result = xmlCodec(Schema).decode("<book></book>");
+    expect(result.title).toBe("untitled");
+  });
+
+  it("encodes using inherited tagname through ZodDefault wrapper", () => {
+    const out = xmlCodec(Schema).encode({ title: "Dune" });
+    expect(out).toBe("<book><title>Dune</title></book>");
+  });
+});
+
+// -----------------------------------------------------------------------
+// next middleware
+// -----------------------------------------------------------------------
+
+describe("next middleware — root-level decode", () => {
+  it("next() returns the default decoded value which the user can modify", () => {
+    const Schema = xml.root(z.object({ x: z.string() }), {
+      tagname: "root",
+      decode: (ctx, next) => {
+        const v = next();
+        return { x: v.x + "!" };
+      },
+    });
+    const result = xmlCodec(Schema).decode("<root><x>hello</x></root>");
+    expect(result.x).toBe("hello!");
+  });
+
+  it("decode with optional wrapper: null check runs before custom decode", () => {
+    const Inner = xml.root(z.object({ x: z.string() }), {
+      tagname: "inner",
+      decode: (ctx, next) => next(),
+    });
+    const Schema = xml.root(z.object({ inner: Inner.optional() }), { tagname: "root" });
+    const withValue = xmlCodec(Schema).decode("<root><inner><x>hi</x></inner></root>");
+    expect(withValue.inner?.x).toBe("hi");
+    const withoutValue = xmlCodec(Schema).decode("<root></root>");
+    expect(withoutValue.inner).toBeUndefined();
+  });
+});
+
+describe("next middleware — root-level encode", () => {
+  it("next() returns the default encoded element and user can add attributes", () => {
+    const Schema = xml.root(z.object({ title: z.string() }), {
+      tagname: "book",
+      encode: (ctx, next) => {
+        const el = next();
+        el.attributes["v"] = "2";
+        return el;
+      },
+    });
+    const out = xmlCodec(Schema).encode({ title: "Dune" });
+    expect(out).toContain('v="2"');
+    expect(out).toContain("<title>Dune</title>");
+  });
+});
+
+describe("next middleware — property-level decode", () => {
+  it("next() applies default decode and user can modify ctx.result afterward", () => {
+    const Schema = xml.root(
+      z.object({
+        title: xml.prop(z.string(), {
+          decode: (ctx, next) => {
+            next(); // decodes and sets ctx.result.title = "Hello"
+            // append suffix to the decoded value
+            (ctx.result as any).title = (ctx.result as any).title + "!";
+          },
+        }),
+      }),
+      { tagname: "doc" },
+    );
+    const result = xmlCodec(Schema).decode("<doc><title>Hello</title></doc>");
+    expect(result.title).toBe("Hello!");
+  });
+});
+
+describe("next middleware — property-level encode", () => {
+  it("next() performs default encoding and user can mutate parent element afterward", () => {
+    const Schema = xml.root(
+      z.object({
+        title: xml.prop(z.string(), {
+          encode: (ctx, next) => {
+            next();
+            ctx.result.attributes["mark"] = "1";
+          },
+        }),
+      }),
+      { tagname: "doc" },
+    );
+    const out = xmlCodec(Schema).encode({ title: "Hello" });
+    expect(out).toContain("<title>Hello</title>");
+    expect(out).toContain('mark="1"');
+  });
+});
+
+describe("regression — xml.attr with optional wrapper", () => {
+  const Schema = xml.root(
+    z.object({
+      lang: xml.attr(z.string(), { name: "lang" }).optional(),
+      title: z.string(),
+    }),
+    { tagname: "book" },
+  );
+
+  it("still reads attribute through optional wrapper", () => {
+    const result = xmlCodec(Schema).decode('<book lang="en"><title>Dune</title></book>');
+    expect(result.lang).toBe("en");
+  });
+
+  it("returns undefined for absent optional attribute", () => {
+    const result = xmlCodec(Schema).decode("<book><title>Dune</title></book>");
+    expect(result.lang).toBeUndefined();
   });
 });

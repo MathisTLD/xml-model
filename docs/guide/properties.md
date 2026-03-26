@@ -17,12 +17,23 @@ Use `xml.prop(schema, options)` only when you need to customise the element — 
 
 ### `xml.prop()` options
 
-| Option    | Type                                  | Description                                                                                            |
-| --------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `tagname` | `string`                              | Override the element tag name.                                                                         |
-| `inline`  | `boolean`                             | For arrays: place items as direct siblings instead of inside a wrapper element. See [Arrays](#arrays). |
-| `ignore`  | `boolean`                             | Exclude this field from XML conversion entirely.                                                       |
-| `match`   | `string \| RegExp \| (el) => boolean` | Custom predicate for matching source elements during parsing.                                          |
+| Option    | Type                                  | Description                                                                                                             |
+| --------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `tagname` | `string`                              | Override the element tag name.                                                                                          |
+| `inline`  | `boolean`                             | For arrays: place items as direct siblings instead of inside a wrapper element. See [Arrays](#arrays).                  |
+| `match`   | `string \| RegExp \| (el) => boolean` | Custom predicate for matching source elements during parsing.                                                           |
+| `decode`  | `(ctx, next) => void`                 | Custom decoding hook. Call `next()` to run the default decode logic. See [Custom decode/encode](#custom-decode-encode). |
+| `encode`  | `(ctx, next) => void`                 | Custom encoding hook. Call `next()` to run the default encode logic. See [Custom decode/encode](#custom-decode-encode). |
+
+When you call `xml.prop(options)` with no schema argument, it returns a Zod `GlobalMeta` object. This lets you attach the annotation with Zod's own `.meta()` — both forms are equivalent:
+
+```ts
+// these two are identical
+xml.prop(z.string(), { tagname: "pub-date" });
+z.string().meta(xml.prop({ tagname: "pub-date" }));
+```
+
+The same applies to `xml.attr()` and `xml.root()`.
 
 ## XML attributes — `xml.attr()`
 
@@ -124,26 +135,79 @@ All `<model>` items live inside the `<models>` container. The tag name of indivi
 | Multiple types | Yes — mix freely by tag name    | No — single homogeneous list            |
 | Typical use    | Heterogeneous sibling elements  | Homogeneous list with a named container |
 
-## Low-level `.meta()` API
+## Custom decode/encode
 
-`xml.prop()` and `xml.attr()` are convenience helpers that call Zod v4's `.meta()` under the hood. You can use `.meta()` directly for fine-grained control:
+`xml.prop()` and `xml.root()` accept `decode` and `encode` hooks that let you intercept and augment the default codec behavior without replacing it entirely.
+
+### Property-level (`xml.prop`)
+
+**`decode`** is a void side-effect — mutate `ctx.result` directly:
 
 ```ts
-z.object({
-  id: z.string().meta({ xml: { attr: "id" } }), // equivalent to xml.attr(z.string(), { name: "id" })
-  name: z.string().meta({ xml: {} }), // same as bare z.string() — no-op annotation
-  hidden: z.string().meta({ xml: { ignore: true } }), // equivalent to xml.prop(z.string(), { ignore: true })
+xml.prop(z.string(), {
+  decode(ctx, next) {
+    next(); // assigns the default-decoded value to ctx.result[fieldName]
+    (ctx.result as any).title = (ctx.result as any).title?.toUpperCase();
+  },
 });
 ```
 
-The `xml` key inside `.meta()` accepts the full `XMLFieldMeta` interface:
+`ctx` for `decode` is a `PropertyDecodingContext` with:
+
+- `ctx.result` — the partially-built parent object (mutate to add/override fields)
+- `ctx.property` — metadata about the field (name, tagname, options, source XML element)
+- `ctx.xml` — the source XML element for the parent
+
+**`encode`** is a void side-effect — mutate `ctx.result` directly:
 
 ```ts
-interface XMLFieldMeta {
-  attr?: string; // if present → XML attribute with this name; absent → child element
-  tagname?: string; // override element tag name
-  inline?: boolean; // inline array items
-  ignore?: boolean; // exclude from XML
-  match?: string | RegExp | ((el: XMLElement) => boolean); // custom element matcher
-}
+xml.prop(z.string(), {
+  encode(ctx, next) {
+    next(); // pushes the default-encoded element to ctx.result.elements
+    ctx.result.attributes["data-custom"] = "1";
+  },
+});
+```
+
+`ctx` for `encode` is a `PropertyEncodingContext` with:
+
+- `ctx.result` — the partially-built parent `XMLElement` (mutate `ctx.result.elements` or `ctx.result.attributes`)
+- `ctx.property` — metadata about the field (name, tagname, options, value)
+
+### Root-level (`xml.root`)
+
+Root-level hooks **return** the decoded/encoded value, so `next()` is a factory:
+
+```ts
+xml.root(MySchema, {
+  decode(ctx, next) {
+    const obj = next(); // returns the default-decoded object
+    return { ...obj, _source: "xml" };
+  },
+  encode(ctx, next) {
+    const el = next(); // returns the default-encoded XMLElement
+    el.attributes ??= {};
+    el.attributes["version"] = "1";
+    return el;
+  },
+});
+```
+
+### Ordering with optional/default wrappers
+
+When you combine `xml.prop(...).optional()` (or `.default(...)`), the wrapper applies **before** your custom hooks:
+
+- `ZodOptional`: the absent-element null check runs first; if the element is absent the field is set to `undefined` without calling your hooks.
+- `ZodDefault`: the default value is applied first; your hooks only run when the element is present.
+
+This means `next()` inside a `decode` hook always receives a fully resolved value, never `undefined`.
+
+```ts
+// safe: next() is only called when <slug> is present
+slug: xml.prop(z.string(), {
+  decode(ctx, next) {
+    next();
+    (ctx.result as any).slug = (ctx.result as any).slug?.toLowerCase();
+  },
+}).optional(),
 ```

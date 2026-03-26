@@ -45,8 +45,8 @@ export interface CodecOptions<S extends z.ZodType> {
  */
 export type UserCodecOptions<S extends z.ZodType = z.ZodType> = {
   tagname?: string | CodecOptions<S>["tagname"];
-  decode?: CodecOptions<S>["decode"];
-  encode?: CodecOptions<S>["encode"];
+  decode?: (ctx: RootDecodingContext<S>, next: () => z.input<S>) => z.input<S>;
+  encode?: (ctx: RootEncodingContext<S>, next: () => XMLElement) => XMLElement;
   propertyTagname?: string | CodecOptions<S>["propertyTagname"];
   inlineProperty?: boolean;
   propertyMatch?: RegExp | CodecOptions<S>["propertyMatch"];
@@ -138,8 +138,12 @@ export function normalizeCodecOptions<S extends z.ZodType>(
         ? userMatch
         : (el, ctx) => el.name === ctx.tagname;
 
-  const decode: CodecOptions<S>["decode"] = options.decode ?? defaultOptions().decode;
-  const encode: CodecOptions<S>["encode"] = options.encode ?? defaultOptions().encode;
+  const decode: CodecOptions<S>["decode"] = options.decode
+    ? (ctx) => options.decode!(ctx, () => defaultOptions().decode(ctx))
+    : (ctx) => defaultOptions().decode(ctx);
+  const encode: CodecOptions<S>["encode"] = options.encode
+    ? (ctx) => options.encode!(ctx, () => defaultOptions().encode(ctx))
+    : (ctx) => defaultOptions().encode(ctx);
 
   // Self-referential — closures capture `result` so the default
   // decodeAsProperty/encodeAsProperty can call the schema's own decode/encode.
@@ -302,13 +306,20 @@ registerDefault((schema) => {
     const innerOptions = resolveCodecOptions(inner);
     return normalizeCodecOptions(schema, {
       decode(ctx) {
-        if (!ctx.xml) return undefined;
+        if (ctx.xml === null) return undefined;
         else return innerOptions.decode(ctx);
       },
       encode(ctx) {
         if (typeof ctx.data === "undefined")
           return {} as XMLElement; // equivalent of empty XML
         else return innerOptions.encode(ctx);
+      },
+      decodeAsProperty(ctx) {
+        if (ctx.property.xml !== null) innerOptions.decodeAsProperty(ctx);
+      },
+      encodeAsProperty(ctx) {
+        console.log(ctx.property.name, ctx.property.value);
+        if (typeof ctx.property.value !== "undefined") innerOptions.encodeAsProperty(ctx);
       },
     });
   }

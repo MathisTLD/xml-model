@@ -11,6 +11,8 @@ export function getParentSchema(schema: z.ZodType) {
     if (isZodType(schema.def.in)) parent = schema.def.in;
   } else if (schema instanceof z.ZodOptional) {
     if (isZodType(schema.def.innerType)) parent = schema.def.innerType;
+  } else if (schema instanceof z.ZodDefault) {
+    if (isZodType(schema.def.innerType)) parent = schema.def.innerType;
   } else if (schema instanceof z.ZodLazy) {
     const value = schema.def.getter();
     if (isZodType(value)) parent = value;

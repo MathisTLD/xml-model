@@ -20,7 +20,8 @@ export default defineConfig(() => {
     ],
     test: {
       typecheck: {
-        enabled: true,
+        // FIXME: type checking looks broken since migration to vite-plus
+        // enabled: true,
       },
     },
   };

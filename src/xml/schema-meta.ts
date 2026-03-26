@@ -1,6 +1,11 @@
 import { z } from "zod";
-import type { UserCodecOptions, PropertyDecodingContext, PropertyEncodingContext } from "./codec";
-import type { XMLElement } from "./xml-js";
+import type {
+  UserCodecOptions,
+  CodecOptions,
+  PropertyDecodingContext,
+  PropertyEncodingContext,
+} from "./codec";
+import { XML, type XMLElement } from "./xml-js";
 import { getParentSchema, isZodType } from "@/util/zod";
 
 const metaKey = "@@xml-model" as const;
@@ -33,8 +38,8 @@ type UserPropOptions = {
   tagname?: string | UserCodecOptions["propertyTagname"];
   inline?: boolean;
   match?: RegExp | ((el: XMLElement) => boolean);
-  decode?: (ctx: PropertyDecodingContext) => Partial<Record<string, unknown>> | undefined;
-  encode?: (ctx: PropertyEncodingContext) => XMLElement | undefined;
+  decode?: (ctx: PropertyDecodingContext, next: () => void) => void;
+  encode?: (ctx: PropertyEncodingContext, next: () => void) => void;
 };
 
 function normalizePropOptions(options?: UserPropOptions): UserCodecOptions {
@@ -48,24 +53,42 @@ function normalizePropOptions(options?: UserPropOptions): UserCodecOptions {
   if (options.decode !== undefined) {
     const userDecode = options.decode;
     partial.decodeAsProperty = function (ctx) {
-      const res = userDecode(ctx);
-      if (typeof res !== "undefined") {
-        Object.assign(ctx.result, res);
-      }
+      const next = () => {
+        const val = ctx.property.options.decode({
+          options: ctx.property.options,
+          xml: ctx.property.xml,
+        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (ctx.result as any)[ctx.property.name as string] = val;
+      };
+      userDecode(ctx, next);
     };
   }
   if (options.encode !== undefined) {
     const userEncode = options.encode;
     partial.encodeAsProperty = function (ctx) {
       const { property } = ctx;
-      const res = userEncode(ctx);
-      if (typeof res === "undefined") return;
-      if (property.options.inlineProperty) {
-        ctx.result.elements.push(...res.elements);
-      } else {
-        res.name = property.tagname;
-        ctx.result.elements.push(res);
-      }
+      const next = () => {
+        const optsWithTagname = {
+          ...property.options,
+          tagname: () => property.tagname,
+        } as CodecOptions<z.ZodType>;
+        const res = property.options.encode({
+          options: optsWithTagname,
+          data: property.value as z.output<z.ZodType>,
+        });
+        if (XML.isEmpty(res)) return;
+        if (property.options.inlineProperty) {
+          ctx.result.elements.push(
+            ...res.elements.map((el) =>
+              el.type === "element" ? { ...el, name: property.tagname } : el,
+            ),
+          );
+        } else {
+          ctx.result.elements.push({ ...res, name: property.tagname });
+        }
+      };
+      userEncode(ctx, next);
     };
   }
   return partial;
@@ -140,7 +163,7 @@ export function attr<PS extends z.ZodType>(
     decodeAsProperty(ctx) {
       const { name, options: propOptions } = ctx.property;
       const attrName = opts.name ?? (name as string);
-      const attrValue = ctx.xml?.attributes[attrName];
+      const attrValue = ctx.xml?.attributes?.[attrName];
       // TODO: document: the schema is responsible for coercion
       ctx.result[name as string] = propOptions.schema.parse(attrValue);
     },
@@ -170,10 +193,27 @@ export function getOwnUserOptions<S extends z.ZodType>(schema: S): UserCodecOpti
   return (meta?.[metaKey] ?? {}) as UserCodecOptions<S>;
 }
 
+// Only these fields propagate upward through wrapper schemas (ZodOptional, ZodDefault, etc.).
+// decode/encode intentionally excluded: they stay at the schema level where they were defined,
+// letting wrapper types (optional null-check, default value) apply before delegating downward.
+const INHERITABLE_KEYS = [
+  "tagname",
+  "propertyTagname",
+  "inlineProperty",
+  "propertyMatch",
+  "decodeAsProperty",
+  "encodeAsProperty",
+] as const satisfies ReadonlyArray<keyof UserCodecOptions>;
+
 export function getUserOptions<S extends z.ZodType>(schema: S): UserCodecOptions<S> {
   const own = getOwnUserOptions(schema);
   const parentSchema = getParentSchema(schema);
   if (!parentSchema) return own;
   const parentOptions = getUserOptions(parentSchema);
-  return { ...parentOptions, ...own } as UserCodecOptions<S>;
+  const inherited: UserCodecOptions = {};
+  for (const key of INHERITABLE_KEYS) {
+    if (parentOptions[key] !== undefined && own[key] === undefined)
+      (inherited as any)[key] = parentOptions[key];
+  }
+  return { ...inherited, ...own } as UserCodecOptions<S>;
 }

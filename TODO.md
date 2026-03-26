@@ -2,6 +2,18 @@
 
 ## Bugs
 
+### xml.prop() overrides `.optional`
+
+```ts
+xml
+  .prop(schema, {
+    encode(ctx) {
+      // FIXME: this code should not be reached when ctx.property.value is undefined
+    },
+  })
+  .optional();
+```
+
 ### `XML_STATE` not preserved for nested objects through `schema.parse()`
 
 `XML_STATE` is a non-enumerable symbol attached to decoded plain-data objects. It contains
