@@ -12,7 +12,7 @@ import { xmlModel, xml } from "xml-model";
 
 class Article extends xmlModel(
   z.object({
-    slug: xml.attr(z.string(), { name: "slug" }),
+    slug: xml.attr(z.string()),
     title: z.string(),
   }),
   { tagname: "article" },

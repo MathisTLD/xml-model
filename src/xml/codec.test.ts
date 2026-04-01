@@ -278,7 +278,7 @@ describe("unknown element passthrough", () => {
 describe("xml.attr attributes", () => {
   const Schema = xml.root(
     z.object({
-      lang: xml.attr(z.string(), { name: "lang" }),
+      lang: xml.attr(z.string()),
       title: z.string(),
     }),
     { tagname: "book" },

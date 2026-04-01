@@ -37,7 +37,17 @@ The same applies to `xml.attr()` and `xml.root()`.
 
 ## XML attributes — `xml.attr()`
 
-`xml.attr(schema, { name })` marks a field as an XML attribute on the root element.
+`xml.attr(schema, options?)` marks a field as an XML attribute on the root element.
+
+The attribute name defaults to the field key in kebab-case — the same conversion applied to child element tag names. Pass `{ name }` only when the desired attribute name differs from that default.
+
+```ts
+z.object({
+  vin: xml.attr(z.string()), // attribute "vin"   (field key already kebab-case)
+  vehicleId: xml.attr(z.string()), // attribute "vehicle-id"  (auto kebab-case)
+  id: xml.attr(z.string(), { name: "ID" }), // attribute "ID"   (custom name required)
+});
+```
 
 <<< @/../src/xml/examples.ts#vehicle
 

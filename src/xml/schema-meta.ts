@@ -7,6 +7,7 @@ import type {
 } from "./codec";
 import { XML, type XMLElement } from "./xml-js";
 import { getParentSchema, isZodType } from "@/util/zod";
+import { kebabCase } from "@/util/kebab-case";
 
 const metaKey = "@@xml-model" as const;
 
@@ -150,7 +151,24 @@ export function prop<PS extends z.ZodType>(
 // xml.attr
 // ---------------------------------------------------------------------------
 
-type AttributePropOptions = { name?: string };
+type AttributePropOptions = {
+  /**
+   * XML attribute name. Defaults to the field key in kebab-case (the same
+   * conversion applied to child element tag names). Omit `name` when the
+   * attribute name is already the kebab-cased field key.
+   *
+   * @example
+   * // field key "vin" → attribute "vin" — no name needed
+   * vin: xml.attr(z.string())
+   *
+   * // field key "vehicleId" → attribute "vehicle-id" — no name needed (kebab-case default)
+   * vehicleId: xml.attr(z.string())
+   *
+   * // field key "vehicleId" → attribute "vehicle" — name required to override
+   * vehicleId: xml.attr(z.string(), { name: "vehicle" })
+   */
+  name?: string;
+};
 
 export function attr<PS extends z.ZodType>(schema: PS, options?: AttributePropOptions): PS;
 export function attr(options?: AttributePropOptions): z.GlobalMeta;
@@ -161,15 +179,15 @@ export function attr<PS extends z.ZodType>(
   const opts = isZodType(optionsOrSchema) ? (options ?? {}) : (optionsOrSchema ?? {});
   const partial: UserCodecOptions = {
     decodeAsProperty(ctx) {
-      const { name, options: propOptions } = ctx.property;
-      const attrName = opts.name ?? (name as string);
+      const { options: propOptions } = ctx.property;
+      const attrName = opts.name ?? kebabCase(ctx.property.name);
       const attrValue = ctx.xml?.attributes?.[attrName];
       // TODO: document: the schema is responsible for coercion
-      ctx.result[name as string] = propOptions.schema.parse(attrValue);
+      ctx.result[ctx.property.name] = propOptions.schema.parse(attrValue);
     },
     encodeAsProperty(ctx) {
-      const { value, name } = ctx.property;
-      const attrName = opts.name ?? name;
+      const { value } = ctx.property;
+      const attrName = opts.name ?? kebabCase(ctx.property.name);
       // TODO: throw error if attribute already set?
       ctx.result.attributes[attrName] = value.toString();
     },

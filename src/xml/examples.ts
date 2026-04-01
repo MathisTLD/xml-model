@@ -37,7 +37,7 @@ export class Event extends xmlModel(
 export class Engine extends xmlModel(
   z.object({
     /** Fuel type stored as an XML attribute: `<engine type="petrol">` */
-    type: xml.attr(z.string(), { name: "type" }),
+    type: xml.attr(z.string()),
     /** Power output stored as a child element: `<horsepower>150</horsepower>` */
     horsepower: z.number(),
   }),
@@ -54,7 +54,7 @@ export class Engine extends xmlModel(
 export class Vehicle extends xmlModel(
   z.object({
     /** Unique identifier stored as a root XML attribute: `<vehicle vin="...">` */
-    vin: xml.attr(z.string(), { name: "vin" }),
+    vin: xml.attr(z.string()),
     /** Manufacturer name stored as a child element: `<make>Toyota</make>` */
     make: z.string(),
     /** Production year stored as a child element: `<year>2020</year>` */
@@ -130,7 +130,7 @@ export class Motorcycle extends Vehicle.extend(
 export class Fleet extends xmlModel(
   z.object({
     /** Fleet name stored as a root XML attribute: `<fleet name="...">` */
-    name: xml.attr(z.string(), { name: "name" }),
+    name: xml.attr(z.string()),
     /**
      * Inline list of cars. Each `<car>` is a direct child of `<fleet>`.
      * `Car.schema()` returns a ZodPipe that also instantiates `Car` objects.
@@ -178,7 +178,7 @@ export class Fleet extends xmlModel(
 export class Showroom extends xmlModel(
   z.object({
     /** Showroom name stored as a root XML attribute: `<showroom name="...">` */
-    name: xml.attr(z.string(), { name: "name" }),
+    name: xml.attr(z.string()),
     /**
      * Inventory of model names. Without `inline: true` the codec expects items
      * wrapped inside a single `<models>` container element; the tag name of each
