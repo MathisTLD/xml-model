@@ -31,6 +31,58 @@ When `tagname` is omitted the class name is converted to kebab-case automaticall
 | `MyClass.dataSchema`                      | The raw `ZodObject` schema. Use for codec internals, `z.array()`, or `.extend()`.                              |
 | `MyClass.schema()`                        | Returns a `ZodPipe` that transforms parsed data into a class instance. Use inside `xml.prop()` or `z.array()`. |
 
+## Parsing pipeline
+
+`fromXML` and `toXML` are two-layer pipelines. The XML codec layer handles serialization between raw XML and inSchema types (strings, numbers, plain objects). The Zod layer handles type transforms between inSchema and outSchema types (e.g. `string → Date`, raw data `→` class instance).
+
+::: code-group
+
+```txt
+fromXML(xmlString)                      toXML(instance)
+──────────────────                      ───────────────
+  XML string                              instance
+      │ XML.parse()                           │ toData()
+      ▼                                       ▼
+  XMLElement                             typed data  (outSchema types)
+      │ decode()        [XML codec]           │ dataSchema.encode()  [Zod]
+      ▼                                       ▼
+  raw data  (inSchema types)             raw data  (inSchema types)
+      │ dataSchema.parse()    [Zod]           │ encode()       [XML codec]
+      ▼                                       ▼
+  typed data  (outSchema types)          XMLElement
+      │ fromData()                            │ XML.stringify()
+      ▼                                       ▼
+  instance                               XML string
+```
+
+<!-- mermaid id not built-in right now so we keep diagram for later maybe -->
+
+```mermaid
+flowchart LR
+    subgraph fromXML ["fromXML(xmlString)"]
+        direction LR
+        A1["XML string"] -->|"XML.parse()"| B1["XMLElement"]
+
+        B1 -->|"decode()\nXML codec"| C1["raw data\ninSchema types"]
+        C1 -->|"dataSchema.parse()\nZod pipeline"| D1["typed data\noutSchema types"]
+        D1 -->|"fromData()"| E1["instance"]
+    end
+
+    subgraph toXML ["toXML(instance)"]
+        direction LR
+        E2["instance"] -->|"toData()"| D2["typed data\noutSchema types"]
+        D2 -->|"dataSchema.encode()\nZod pipeline"| C2["raw data\ninSchema types"]
+        C2 -->|"encode()\nXML codec"| B2["XMLElement"]
+        B2 -->|"XML.stringify()"| A2["XML string"]
+    end
+
+```
+
+:::
+
+- **XML codec** (`decode` / `encode`) — converts between `XMLElement` and inSchema types. For a `z.string()` field this is the text content; for a ZodObject it is a plain data object; for a nested model it is that model's raw data.
+- **Zod pipeline** (`dataSchema.parse` / `dataSchema.encode`) — applies `z.codec` transforms (e.g. ISO string → `Date`) and constructs class instances. Unknown keys are stripped here, which is why `XMLBase` is needed for round-trip preservation.
+
 ## Class extension via `.extend()`
 
 `.extend()` creates a **true subclass** — child instances are `instanceof` the parent and inherit all its methods.

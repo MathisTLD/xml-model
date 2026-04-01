@@ -138,6 +138,6 @@ Concretely:
 would lose the accidental element-ordering preservation they currently get. This aligns
 implementation with documented behaviour ("use XMLBase to opt in").
 
-**Status: design only — not yet implemented**
+**Status: implemented**
 
 <!-- #endregion roadmap -->

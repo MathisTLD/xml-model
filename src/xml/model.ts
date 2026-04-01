@@ -71,15 +71,19 @@ export function xmlModel<S extends z.ZodObject<any>>(
       if (XML.isRoot(input)) {
         input = XML.elementFromRoot(input);
       }
-      // decode() already applies all ZodCodec transforms, defaults, and optionals —
-      // calling schema.parse() on the result would re-run transforms on already-transformed
-      // values (e.g. a Date where the schema expects a string input), causing type errors.
-      return this.fromData(decode(this.dataSchema, input) as z.output<typeof this.dataSchema>);
+      // decode() operates at the inSchema level, returning raw XML-decoded values
+      // (e.g. strings where the schema has a string → Date codec).
+      // dataSchema.parse() then applies all forward transforms and strips unknown keys.
+      const rawData = decode(this.dataSchema, input);
+      return this.fromData(this.dataSchema.parse(rawData) as z.output<typeof this.dataSchema>);
     }
 
     static toXML<T extends ModelConstructor>(this: T, instance: InstanceType<T>): XMLRoot {
       const data = this.toData(instance);
-      const element = encode(this.dataSchema, data);
+      // dataSchema.encode() applies all reverse transforms (e.g. Date → string), converting
+      // outSchema types back to inSchema types before the XML encoder processes them.
+      const rawData = this.dataSchema.encode(data);
+      const element = encode(this.dataSchema, rawData);
       return { elements: [element] };
     }
 

@@ -37,9 +37,8 @@ export function assertSingleRoot(
   if (!Array.isArray(xml[0].elements)) throw new Error(`Expected element with children list`);
 }
 
-// a key for both input and output of schema
-// FIXME: this might not work depending on transforms (we should disallow transforms that remove properties)
-type PropKey<S extends z.ZodObject> = keyof z.input<S> & keyof z.output<S> & string;
+// a key in the input (inSchema) side of a ZodObject
+type PropKey<S extends z.ZodObject> = keyof z.input<S> & string;
 
 export interface CodecOptions<S extends z.ZodType> {
   schema: S;
@@ -81,7 +80,7 @@ export interface RootDecodingContext<S extends z.ZodType> {
 }
 export interface RootEncodingContext<S extends z.ZodType> {
   options: CodecOptions<S>;
-  data: z.output<S>;
+  data: z.input<S>;
 }
 
 export interface PropertyDecodingContext<
@@ -106,7 +105,7 @@ export interface PropertyEncodingContext<
     name: K;
     options: CodecOptions<z.ZodType>;
     tagname: string;
-    value: z.output<S>[K];
+    value: z.input<S>[K];
   };
   result: XMLElement;
 }
@@ -193,7 +192,7 @@ export function normalizeCodecOptions<S extends z.ZodType>(
         const res = result.encode({
           options: optsWithTagname,
           // FIXME: we should not rely on type casting
-          data: property.value as unknown as z.output<S>,
+          data: property.value as z.input<S>,
         });
         if (XML.isEmpty(res)) {
           // Any {} anywhere in the elements array causes js2xml to drop ALL children when it appears at the end.
@@ -295,7 +294,7 @@ export function decode<S extends z.ZodType>(schema: S, xml: XMLElement): z.input
   return options.decode({ options, xml });
 }
 
-export function encode<S extends z.ZodType>(schema: S, data: z.output<S>): XMLElement {
+export function encode<S extends z.ZodType>(schema: S, data: z.input<S>): XMLElement {
   const options = resolveCodecOptions(schema);
   return options.encode({ options, data });
 }
@@ -405,30 +404,20 @@ registerDefault((schema) => {
   }
   if (schema instanceof z.ZodCodec) {
     const inSchema = schema.def.in;
-    const outSchema = schema.def.out;
     if (!isZodType(inSchema))
       throw new Error(`Expected schema.def.in to be a ZodType, got ${inSchema}`);
-    if (!isZodType(outSchema))
-      throw new Error(`Expected schema.def.out to be a ZodType, got ${outSchema}`);
     // TODO: check that user options are not lost
     const inputCodecOptions = resolveCodecOptions(inSchema);
     return normalizeCodecOptions(schema, {
       decode({ xml }) {
-        // First decode the raw XML using the input schema's codec (e.g. string from XML text),
-        // then apply the user-provided forward transform (in → out, e.g. string → Date).
-        // We call def.transform directly to bypass Zod's parse pipeline — the input was
-        // already decoded by the XML codec and does not need schema validation again.
-        const input = inputCodecOptions.decode({ options: inputCodecOptions, xml });
-        return schema.def.transform(input, { value: input, issues: [] });
+        // Operate at the inSchema level only — return the raw decoded value without
+        // applying the forward transform. The caller (fromXML via dataSchema.parse)
+        // applies transforms as a separate layer after decode() completes.
+        return inputCodecOptions.decode({ options: inputCodecOptions, xml });
       },
       encode(ctx) {
-        // Apply the user-provided reverse transform (out → in), e.g. Date → ISO string.
-        // We call def.reverseTransform directly rather than schema.encode() because the latter
-        // recursively validates + re-parses nested data, which breaks model codecs (it would
-        // double-convert nested instances that the XML encoder needs to process itself).
-        const data = schema.def.reverseTransform
-          ? schema.def.reverseTransform(ctx.data, { value: ctx.data, issues: [] })
-          : outSchema.encode(ctx.data);
+        // ctx.data is already at the inSchema level — the caller (toXML via dataSchema.encode)
+        // has already applied all reverse transforms before calling encode().
         // Propagate the caller's tagname override so that a property-level tagname
         // (e.g. `xml.prop(Schema, { tagname: "audio-in" })`) is not silently replaced
         // by the schema's own root tagname (e.g. `xml.root({ tagname: "audio" })`).
@@ -436,7 +425,7 @@ registerDefault((schema) => {
           ctx.options.tagname !== inputCodecOptions.tagname
             ? { ...inputCodecOptions, tagname: ctx.options.tagname }
             : inputCodecOptions;
-        return innerOpts.encode({ options: innerOpts, data });
+        return innerOpts.encode({ options: innerOpts, data: ctx.data });
       },
     });
   }
@@ -630,7 +619,7 @@ registerDefault(<S extends z.ZodObject>(schema: S) => {
               o.encodeAsProperty({
                 // FIXME should not need type casts
                 options: ctx.options as CodecOptions<S>,
-                data: data as z.output<S>,
+                data,
                 property: {
                   name: item,
                   options: o,
@@ -662,16 +651,7 @@ export function xmlCodec<S extends z.ZodType>(schema: S) {
       return decode(schema, xmlEl);
     },
     encode(value) {
-      // FIXME: here `value` has already been encoded into the input type of `schema`
-      // in particular, classes have been recursively transformed into they input data
-      // this prevents re-serialization to work correctly as the schemas currently expect instances
-      // and not objects
-      const xmlEl = encode(
-        schema,
-        // FIXME: value is expected to be of type input<S>
-        // so `schema` should be able or re-encoding its output
-        value as z.output<S>,
-      );
+      const xmlEl = encode(schema, value as z.input<S>);
       return XML.stringify({ elements: [xmlEl] });
     },
   });

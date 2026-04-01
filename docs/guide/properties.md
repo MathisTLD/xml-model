@@ -158,7 +158,7 @@ Event.toXMLString(event);
 
 `decode` receives the raw XML-decoded value (a `string` here) and returns the transformed value. `encode` receives the transformed value and returns the raw form that goes back into XML. The two are inverses of each other.
 
-> **Note:** `z.codec` transforms are applied by the XML codec during `fromXML`/`toXMLString`. Do not combine them with a subsequent `schema.parse()` call — that would re-run the input validation on the already-transformed output value and cause a type error.
+> **Note:** `z.codec` transforms are applied by Zod's parse pipeline inside `fromXML`/`toXMLString` — you do not need to call `schema.parse()` yourself. See [Parsing pipeline](/guide/models#parsing-pipeline) for details.
 
 ## Custom decode/encode
 
