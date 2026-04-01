@@ -643,6 +643,173 @@ registerDefault(<S extends z.ZodObject>(schema: S) => {
   }
 });
 
+// ── helpers for union handlers ─────────────────────────────────────────────
+
+/**
+ * Recursively extracts the set of literal values from a schema,
+ * unwrapping ZodCodec, ZodOptional, etc. as needed.
+ */
+function getLiteralValues(schema: z.ZodType): unknown[] {
+  if (schema instanceof z.ZodLiteral) return schema.def.values;
+  if (schema instanceof z.ZodCodec) return getLiteralValues(schema.def.in as z.ZodType);
+  if (schema instanceof z.ZodOptional) return getLiteralValues(schema.def.innerType as z.ZodType);
+  return [];
+}
+
+function formatReason(errors: any[]) {
+  return errors.map((e) => (e instanceof Error ? e.message : String(e))).join("; ");
+}
+
+/**
+ * Reads the discriminator field value from an XML element without a full decode.
+ * Handles both XML-attribute discriminators (xml.attr) and child-element discriminators.
+ */
+function peekDiscriminatorValue(
+  discriminator: string,
+  propertyOptions: CodecOptions<z.ZodType>[],
+  ctx: RootDecodingContext<any>,
+): unknown {
+  const errors: any[] = [];
+  for (const options of propertyOptions) {
+    try {
+      const tagname = options.propertyTagname({ name: discriminator, options });
+      const propCtx = {
+        name: discriminator,
+        options,
+        tagname,
+        // starts as a collection container; replaced with actual element or null after matching
+        xml: { elements: [] } as XMLElement,
+      };
+
+      ctx.xml.elements.forEach((el) => {
+        if (el.type !== "element") return;
+        if (options.propertyMatch(el, propCtx)) {
+          propCtx.xml.elements.push(el);
+        }
+      });
+      // FIXME: this mostly duplicates code from above
+      if (propCtx.xml.elements.length === 0) {
+        // FIXME: this might be an error itself
+        propCtx.xml = null;
+      } else if (propCtx.xml.elements.length !== 1) {
+        throw new Error("Matched multiple elements for a single property");
+      } else {
+        propCtx.xml = propCtx.xml.elements[0] as XMLElement;
+      }
+
+      const result = {};
+      options.decodeAsProperty({
+        options: ctx.options,
+        xml: ctx.xml,
+        // @ts-ignore
+        property: propCtx,
+        result,
+      });
+      return result[discriminator];
+    } catch (e) {
+      // FIXME: shouldn't we only catch ZodError and XMLCodecError ?
+      errors.push(e);
+    }
+  }
+  throw new XMLCodecError(`union: no option matched for decoding (${formatReason(errors)})`);
+}
+
+registerDefault((schema) => {
+  // ── ZodDiscriminatedUnion — must be checked before ZodUnion (it extends it) ──
+  if (schema instanceof z.ZodDiscriminatedUnion) {
+    const discriminator = schema.def.discriminator as string;
+    const options = schema.def.options as z.ZodType[];
+
+    // Build: discriminator value → codec options for the matching inSchema (ZodObject)
+    const optionCodecs = new Map<unknown, CodecOptions<z.ZodType>>();
+
+    const discriminatorSchemas: z.ZodType[] = [];
+
+    for (const option of options) {
+      // Unwrap ZodCodec (from model.schema()) to get the underlying ZodObject
+      const inSchema = option instanceof z.ZodCodec ? (option.def.in as z.ZodType) : option;
+      if (!(inSchema instanceof z.ZodObject))
+        throw new TypeError(
+          `Discriminated union members are supposed to be objects, got ${inSchema.type}`,
+        );
+      // FIXME: overrides in the properties options are not supported yet
+      // we could get these options with `const propOptions = resolvePropertiesCodecOptions(inSchema)`
+      // but then `propOptions[discriminator]` matches only a literal so we can't use only the first
+      // propOptions[discriminator] and hope to get the discriminator value as it will fail every time parsed object is not the first
+      // element of the union.
+      const discriminatorSchema = inSchema.shape[discriminator];
+      if (!discriminatorSchema)
+        throw new TypeError(`Missing discriminator field "${discriminator}" in schema`);
+      discriminatorSchemas.push(discriminatorSchema);
+      const optCodec = resolveCodecOptions(inSchema);
+      for (const val of getLiteralValues(discriminatorSchema)) {
+        optionCodecs.set(val, optCodec);
+      }
+    }
+
+    const discriminatorOptions = discriminatorSchemas.map(resolveCodecOptions);
+
+    return normalizeCodecOptions(schema, {
+      decode(ctx) {
+        const { xml } = ctx;
+        if (!xml) throw new XMLCodecError(`discriminated union requires an XML element`);
+        const discValue = peekDiscriminatorValue(discriminator, discriminatorOptions, ctx);
+        const matched = optionCodecs.get(discValue);
+        if (!matched)
+          throw new XMLCodecError(
+            `no variant matched discriminator "${discriminator}" = "${String(discValue)}"`,
+          );
+        return matched.decode({ options: matched, xml });
+      },
+      encode(ctx) {
+        const discValue = (ctx.data as Record<string, unknown>)[discriminator];
+        const matched = optionCodecs.get(discValue);
+        if (!matched)
+          throw new XMLCodecError(
+            `no variant matched discriminator "${discriminator}" = "${String(discValue)}"`,
+          );
+        return matched.encode({ options: matched, data: ctx.data });
+      },
+    });
+  }
+
+  // ── ZodUnion — try each option in order, return first success ──
+  if (schema instanceof z.ZodUnion) {
+    const options = schema.def.options as z.ZodType[];
+    const codecOptions = options.map((option) => {
+      const inSchema = option instanceof z.ZodCodec ? (option.def.in as z.ZodType) : option;
+      return resolveCodecOptions(inSchema instanceof z.ZodObject ? inSchema : option);
+    });
+
+    return normalizeCodecOptions(schema, {
+      decode(ctx) {
+        const errors: any[] = [];
+        for (const options of codecOptions) {
+          try {
+            return options.decode({ options, xml: ctx.xml });
+          } catch (e) {
+            // FIXME: shouldn't we only catch ZodError and XMLCodecError ?
+            errors.push(e);
+          }
+        }
+        throw new XMLCodecError(`union: no option matched for decoding (${formatReason(errors)})`);
+      },
+      encode(ctx) {
+        const errors: any[] = [];
+        for (const options of codecOptions) {
+          try {
+            return options.encode({ options, data: ctx.data });
+          } catch (e) {
+            // FIXME: shouldn't we only catch ZodError and XMLCodecError ?
+            errors.push(e);
+          }
+        }
+        throw new XMLCodecError(`union: no option matched for encoding (${formatReason(errors)})`);
+      },
+    });
+  }
+});
+
 export function xmlCodec<S extends z.ZodType>(schema: S) {
   const codec = z.codec(z.string(), schema, {
     decode(xml) {

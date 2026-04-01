@@ -190,6 +190,47 @@ export class Showroom extends xmlModel(
 ) {}
 // #endregion showroom
 
+// #region discriminated-engines
+/**
+ * A petrol engine, discriminated by `type="petrol"`.
+ */
+export class PetrolEngine extends xmlModel(
+  z.object({
+    type: xml.attr(z.literal("petrol")),
+    horsepower: z.number(),
+  }),
+  { tagname: "engine" },
+) {}
+
+/**
+ * An electric engine, discriminated by `type="electric"`.
+ */
+export class ElectricEngine extends xmlModel(
+  z.object({
+    type: xml.attr(z.literal("electric")),
+    range: z.number(),
+  }),
+  { tagname: "engine" },
+) {}
+
+/**
+ * Fallback for unrecognised engine types. Uses `z.looseObject` to pass
+ * through unknown child elements during a round-trip.
+ */
+export class UnknownEngine extends xmlModel(z.looseObject({ type: xml.attr(z.string()) }), {
+  tagname: "engine",
+}) {}
+
+/**
+ * A union that matches known engine types by discriminator and falls back to
+ * `UnknownEngine` for any unrecognised `type` value.
+ */
+export const AnyEngine = z.union([
+  z.discriminatedUnion("type", [PetrolEngine.schema(), ElectricEngine.schema()]),
+  UnknownEngine.schema(),
+]);
+// #endregion discriminated-engines
+
 // #region car-no-proto
 /**
  * Demonstrates the alternative to `.extend()`: passing a manually extended

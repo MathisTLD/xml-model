@@ -1,8 +1,9 @@
-import { describe, it, expect } from "vite-plus/test";
+import { describe, it, expect, assert } from "vite-plus/test";
 import { z } from "zod";
 import { xmlCodec, xmlStateSchema, XML_STATE_KEY, XMLCodecError } from "./codec";
 import { xml } from "./schema-meta";
 import { xmlModel, XMLBase, XMLBaseWithSource } from "./model";
+import { AnyEngine, ElectricEngine, Event, PetrolEngine, UnknownEngine } from "./examples";
 
 // -----------------------------------------------------------------------
 // Helpers
@@ -666,14 +667,7 @@ describe("XML_STATE preserved for nested model instances", () => {
 // -----------------------------------------------------------------------
 
 describe("z.codec type transforms", () => {
-  const isoDate = z.codec(z.string(), z.date(), {
-    decode: (iso) => new Date(iso),
-    encode: (date) => date.toISOString(),
-  });
-
-  class EventModel extends xmlModel(z.object({ title: z.string(), publishedAt: isoDate }), {
-    tagname: "event",
-  }) {}
+  const EventModel = Event;
 
   const iso = "2024-01-15T00:00:00.000Z";
   const xmlStr = `<event><title>Launch</title><published-at>${iso}</published-at></event>`;
@@ -816,5 +810,65 @@ describe("XMLCodecError", () => {
       xmlCodec(Schema).decode("<doc><value>x</value></doc>"),
     ) as XMLCodecError;
     expect(err.message).toBe("[value] boom");
+  });
+});
+
+// -----------------------------------------------------------------------
+// Discriminated unions
+// -----------------------------------------------------------------------
+
+describe("discriminated unions", () => {
+  const AnyEngineUnion = z.union([
+    PetrolEngine.schema(),
+    ElectricEngine.schema(),
+    UnknownEngine.schema(),
+  ]);
+
+  const engineCodec = xmlCodec(AnyEngine);
+  // same as above but supposedly slower
+  const engineUnionCodec = xmlCodec(AnyEngineUnion);
+
+  // Parent model with an inline array of discriminated engines.
+  class Garage extends xmlModel(
+    z.object({
+      engines: xml.prop(z.array(AnyEngine), { inline: true, tagname: "engine" }),
+    }),
+    { tagname: "garage" },
+  ) {}
+
+  const petrolXml = '<engine type="petrol"><horsepower>150</horsepower></engine>';
+  const electricXml = '<engine type="electric"><range>400</range></engine>';
+  const hybridXml = '<engine type="hybrid"><horsepower>100</horsepower></engine>';
+  const xmlStr = "<garage>" + petrolXml + electricXml + hybridXml + "</garage>";
+
+  it.each(["discriminated union", "union"])("should decode engine (%s)", (type) => {
+    const codec = { "discriminated union": engineCodec, union: engineUnionCodec }[type];
+    const petrol = codec.decode(petrolXml);
+    expect(petrol).toBeInstanceOf(PetrolEngine);
+
+    const electric = codec.decode(electricXml);
+    expect(electric).toBeInstanceOf(ElectricEngine);
+
+    const hybrid = codec.decode(hybridXml);
+    expect(hybrid).toBeInstanceOf(UnknownEngine);
+    expect(hybrid.type).toBe("hybrid");
+  });
+
+  it("decodes each variant to the correct engine", () => {
+    const garage = Garage.fromXML(xmlStr);
+    expect(garage.engines).toHaveLength(3);
+    const [petrol, electric, hybrid] = garage.engines;
+    assert(petrol instanceof PetrolEngine);
+    assert(electric instanceof ElectricEngine);
+    assert(hybrid instanceof UnknownEngine);
+    expect(petrol.type).toBe("petrol");
+    expect(petrol.horsepower).toBe(150);
+    expect(electric.type).toBe("electric");
+    expect(electric.range).toBe(400);
+  });
+
+  it("roundtrips without loss", () => {
+    const garage = Garage.fromXML(xmlStr);
+    expect(Garage.toXMLString(garage)).toBe(xmlStr);
   });
 });

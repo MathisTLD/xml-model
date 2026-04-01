@@ -145,6 +145,32 @@ All `<model>` items live inside the `<models>` container. The tag name of indivi
 | Multiple types | Yes — mix freely by tag name    | No — single homogeneous list            |
 | Typical use    | Heterogeneous sibling elements  | Homogeneous list with a named container |
 
+## Discriminated unions
+
+Use `z.discriminatedUnion` when a field (or inline array) can hold one of several model variants, each identified by a shared discriminator attribute or element.
+
+<<< @/../src/xml/examples.ts#discriminated-engines
+
+```ts
+const petrol = AnyEngine.decode({ type: "petrol", horsepower: 150 });
+petrol instanceof PetrolEngine; // true
+
+const hybrid = AnyEngine.decode({ type: "hybrid", horsepower: 100 });
+hybrid instanceof UnknownEngine; // true — fallback variant
+```
+
+The outer `z.union` wraps the discriminated union with a fallback variant (`UnknownEngine`) that catches any unrecognised type value. Omit the outer union if all variants are known and unknown values should be an error.
+
+`z.discriminatedUnion` dispatches in O(1) by reading the discriminator attribute before decoding the full element, so it is more efficient than a plain `z.union` when the variant count is large.
+
+### When to use each
+
+|                        | `z.discriminatedUnion`                              | `z.union`                          |
+| ---------------------- | --------------------------------------------------- | ---------------------------------- |
+| Dispatch               | O(1) — reads discriminator first                    | O(n) — tries each variant in order |
+| Requires shared key    | Yes — all variants must share a discriminator field | No                                 |
+| Unknown-value fallback | Wrap in an outer `z.union`                          | Add a catch-all variant last       |
+
 ## Type transforms — `z.codec`
 
 Use `z.codec(inputSchema, outputSchema, { decode, encode })` when a field should be stored as one type in XML but exposed as a different type in your model.

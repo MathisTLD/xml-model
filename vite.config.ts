@@ -11,6 +11,15 @@ export default defineConfig(() => {
     },
     plugins: [
       Lib({
+        // exclude bench from dts build
+        dts: {
+          exclude: [
+            "**/*.test.ts",
+            "**/*.test-*.ts",
+            // FIXME: should be default
+            "**/*.bench.ts",
+          ],
+        },
         typedoc: {
           // see "TypeDoc does not show inherited fields from `.extend()` subclasses"
           entryPoints: ["./src/index.ts", "./src/xml/index.ts"],
