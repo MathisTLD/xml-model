@@ -1,7 +1,8 @@
 import { describe, it, expect, assert } from "vite-plus/test";
 import { z } from "zod";
-import { xmlCodec, xmlStateSchema, XMLCodecError } from "./codec";
+import { xmlCodec, xmlStateSchema, XMLCodecError, parseXML, toXML, stringifyXML } from "./codec";
 import { xml } from "./schema-meta";
+import { XML } from "./xml-js";
 import { xmlModel } from "./model";
 import {
   AnyEngine,
@@ -878,5 +879,90 @@ describe("discriminated unions", () => {
   it("roundtrips without loss", () => {
     const garage = Garage.fromXML(xmlStr);
     expect(Garage.toXMLString(garage)).toBe(xmlStr);
+  });
+});
+
+// -----------------------------------------------------------------------
+// parseXML / toXML / stringifyXML
+// -----------------------------------------------------------------------
+
+describe("parseXML / toXML / stringifyXML", () => {
+  const isoDate = z.codec(z.string(), z.date(), {
+    decode: (s) => new Date(s),
+    encode: (d) => d.toISOString(),
+  });
+  const Schema = xml.root(
+    z.object({
+      vin: xml.attr(z.string()),
+      make: z.string(),
+      year: z.number(),
+    }),
+    { tagname: "vehicle" },
+  );
+  const xmlStr = `<vehicle vin="V001"><make>Toyota</make><year>2020</year></vehicle>`;
+
+  it("parseXML accepts a string", () => {
+    const v = parseXML(Schema, xmlStr);
+    expect(v.vin).toBe("V001");
+    expect(v.make).toBe("Toyota");
+    expect(v.year).toBe(2020);
+  });
+
+  it("parseXML accepts an XMLRoot", () => {
+    const root = XML.parse(xmlStr);
+    const v = parseXML(Schema, root);
+    expect(v.vin).toBe("V001");
+  });
+
+  it("parseXML accepts an XMLElement", () => {
+    const el = XML.elementFromRoot(XML.parse(xmlStr));
+    const v = parseXML(Schema, el);
+    expect(v.vin).toBe("V001");
+  });
+
+  it("parseXML applies z.codec transforms", () => {
+    const EventSchema = xml.root(z.object({ publishedAt: isoDate }), { tagname: "event" });
+    const event = parseXML(
+      EventSchema,
+      `<event><published-at>2024-01-15T00:00:00.000Z</published-at></event>`,
+    );
+    expect(event.publishedAt).toBeInstanceOf(Date);
+    expect(event.publishedAt.toISOString()).toBe("2024-01-15T00:00:00.000Z");
+  });
+
+  it("toXML returns an XMLElement", () => {
+    const v = parseXML(Schema, xmlStr);
+    const el = toXML(Schema, v);
+    expect(el.type).toBe("element");
+    expect(el.name).toBe("vehicle");
+    expect(XML.stringify({ elements: [el] })).toBe(xmlStr);
+  });
+
+  it("toXML reverses z.codec transforms", () => {
+    const EventSchema = xml.root(z.object({ publishedAt: isoDate }), { tagname: "event" });
+    const event = parseXML(
+      EventSchema,
+      `<event><published-at>2024-01-15T00:00:00.000Z</published-at></event>`,
+    );
+    const el = toXML(EventSchema, event);
+    expect(XML.stringify({ elements: [el] })).toBe(
+      `<event><published-at>2024-01-15T00:00:00.000Z</published-at></event>`,
+    );
+  });
+
+  it("stringifyXML roundtrips a value", () => {
+    const v = parseXML(Schema, xmlStr);
+    expect(stringifyXML(Schema, v)).toBe(xmlStr);
+  });
+
+  it("stringifyXML passes options to XML.stringify", () => {
+    const v = parseXML(Schema, xmlStr);
+    const pretty = stringifyXML(Schema, v, { spaces: 2 });
+    expect(pretty).toContain("\n");
+  });
+
+  it("parseXML + stringifyXML roundtrip is lossless", () => {
+    const v = parseXML(Schema, xmlStr);
+    expect(stringifyXML(Schema, v)).toBe(xmlStr);
   });
 });

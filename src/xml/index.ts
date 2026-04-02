@@ -8,5 +8,8 @@ export {
   normalizeCodecOptions,
   XMLCodecError,
   xmlStateSchema,
+  parseXML,
+  toXML,
+  stringifyXML,
 } from "./codec";
 export { xmlModel, type XmlModelConstructor } from "./model";

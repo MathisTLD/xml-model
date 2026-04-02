@@ -246,3 +246,33 @@ cars: xml.prop(z.array(Car.schema()), { inline: true }),
 ```
 
 See [Properties — Arrays](/guide/properties#arrays) for full examples.
+
+## Schema-first API — `parseXML`, `toXML`, `stringifyXML`
+
+When you don't need a class — for example when working with a plain Zod schema or a `z.union` — the schema-first helpers offer the same full pipeline as `fromXML` / `toXMLString` without the `xmlModel` wrapper.
+
+```ts
+import { parseXML, toXML, stringifyXML } from "xml-model";
+```
+
+| Function                               | Input                             | Output        |
+| -------------------------------------- | --------------------------------- | ------------- |
+| `parseXML(schema, input)`              | `string \| XMLRoot \| XMLElement` | `z.output<S>` |
+| `toXML(schema, data)`                  | `z.output<S>`                     | `XMLElement`  |
+| `stringifyXML(schema, data, options?)` | `z.output<S>`                     | `string`      |
+
+All three run the full pipeline — `z.codec` transforms (e.g. string → Date), default values, and class instantiation are applied. Use the lower-level [`decode`](/guide/models#parsing-pipeline) / [`encode`](#parsing-pipeline) if you need to stop at `z.input<S>`.
+
+```ts
+const VehicleSchema = xml.root(z.object({ vin: xml.attr(z.string()), make: z.string() }), {
+  tagname: "vehicle",
+});
+
+const vehicle = parseXML(VehicleSchema, `<vehicle vin="V001"><make>Toyota</make></vehicle>`);
+// { vin: "V001", make: "Toyota" }
+
+stringifyXML(VehicleSchema, vehicle);
+// <vehicle vin="V001"><make>Toyota</make></vehicle>
+```
+
+`toXML` does not accept nullable values — check for `null`/`undefined` before calling if your data is optional.

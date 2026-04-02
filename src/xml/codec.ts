@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { XML, type XMLElement } from "./xml-js";
+import { XML, type XMLElement, type XMLRoot, type StringifyOptions } from "./xml-js";
 import { getUserOptions, prop } from "./schema-meta";
 import { kebabCase } from "@/util/kebab-case";
 import { isZodType } from "@/util/zod";
@@ -305,14 +305,74 @@ function findXmlStateKey(shape: Record<string, z.ZodType>): string | undefined {
   return keys[0];
 }
 
+/**
+ * Converts an `XMLElement` into the **input type** of `schema` (`z.input<S>`).
+ *
+ * This is a pure XML-to-data adapter: it does not run Zod's parse pipeline, so
+ * `z.codec` transforms and default values are **not** applied. The result is the
+ * raw decoded value suitable for passing to `schema.parse()`.
+ */
 export function decode<S extends z.ZodType>(schema: S, xml: XMLElement): z.input<S> {
   const options = resolveCodecOptions(schema);
   return options.decode({ options, xml });
 }
 
+/**
+ * Converts the **input type** of `schema` (`z.input<S>`) into an `XMLElement`.
+ *
+ * This is a pure data-to-XML adapter: it expects values at `z.input<S>` level,
+ * meaning `z.codec` transforms must already have been reversed (via `schema.encode()`)
+ * before calling this function.
+ */
 export function encode<S extends z.ZodType>(schema: S, data: z.input<S>): XMLElement {
   const options = resolveCodecOptions(schema);
   return options.encode({ options, data });
+}
+
+/**
+ * Parses an XML string, `XMLRoot`, or `XMLElement` into the **output type** of
+ * `schema` (`z.output<S>`), running the full pipeline:
+ * XML → `decode` → `schema.parse()`.
+ *
+ * `z.codec` transforms (e.g. string → Date) and default values are applied.
+ * Use the lower-level {@link decode} if you need the raw input-type value without
+ * running the Zod parse pipeline.
+ */
+export function parseXML<S extends z.ZodType>(
+  schema: S,
+  input: string | XMLRoot | XMLElement,
+): z.output<S> {
+  if (typeof input === "string") input = XML.parse(input);
+  if (XML.isRoot(input)) input = XML.elementFromRoot(input);
+  return schema.parse(decode(schema, input));
+}
+
+/**
+ * Converts a value at the **output type** of `schema` (`z.output<S>`) into an
+ * `XMLElement`, running the full pipeline: `schema.encode()` → `encode`.
+ *
+ * `z.codec` transforms are reversed before the XML adapter runs.
+ * Use the lower-level {@link encode} if you already have an input-type value and
+ * do not need to run the Zod encode pipeline.
+ *
+ * Does not accept nullable values — check for `null`/`undefined` before calling.
+ */
+export function toXML<S extends z.ZodType>(schema: S, data: z.output<S>): XMLElement {
+  return encode(schema, schema.encode(data));
+}
+
+/**
+ * Converts a value at the **output type** of `schema` (`z.output<S>`) into an
+ * XML string, running the full pipeline: `schema.encode()` → `encode` → `XML.stringify`.
+ *
+ * Equivalent to `XML.stringify({ elements: [toXML(schema, data)] }, options)`.
+ */
+export function stringifyXML<S extends z.ZodType>(
+  schema: S,
+  data: z.output<S>,
+  options?: StringifyOptions,
+): string {
+  return XML.stringify({ elements: [toXML(schema, data)] }, options);
 }
 
 type DefaultResolver<S extends z.ZodType = z.ZodType> = (schema: S) => CodecOptions<S> | void;
@@ -828,6 +888,17 @@ registerDefault((schema) => {
   }
 });
 
+/**
+ * Creates a `z.codec` that converts between an XML string and the **input type**
+ * of `schema` (`z.input<S>`).
+ *
+ * The codec sits at the XML ↔ `z.input<S>` boundary only — it does not run Zod's
+ * parse pipeline. `z.codec` transforms (e.g. string → Date) and class instantiation
+ * are left to `schema.parse()` / `schema.encode()`, which you call separately if needed.
+ *
+ * Typical use: `xmlCodec(MyClass.dataSchema)` for standalone encode/decode without
+ * going through the full `fromXML` / `toXMLString` class API.
+ */
 export function xmlCodec<S extends z.ZodType>(schema: S) {
   const codec = z.codec(z.string(), schema, {
     decode(xml) {
