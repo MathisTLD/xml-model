@@ -1,9 +1,17 @@
 import { describe, it, expect, assert } from "vite-plus/test";
 import { z } from "zod";
-import { xmlCodec, xmlStateSchema, XML_STATE_KEY, XMLCodecError } from "./codec";
+import { xmlCodec, xmlStateSchema, XMLCodecError } from "./codec";
 import { xml } from "./schema-meta";
-import { xmlModel, XMLBase, XMLBaseWithSource } from "./model";
-import { AnyEngine, ElectricEngine, Event, PetrolEngine, UnknownEngine } from "./examples";
+import { xmlModel } from "./model";
+import {
+  AnyEngine,
+  ElectricEngine,
+  Event,
+  PetrolEngine,
+  UnknownEngine,
+  XMLBase,
+  XMLBaseWithSource,
+} from "./examples";
 
 // -----------------------------------------------------------------------
 // Helpers
@@ -221,7 +229,7 @@ describe("arrays (inline)", () => {
 describe("order preservation", () => {
   class Root extends xmlModel(
     z.object({
-      [XML_STATE_KEY]: xmlStateSchema(),
+      _state: xmlStateSchema(),
       // schema order: a, b, c
       a: z.string(),
       b: z.string(),
@@ -250,7 +258,7 @@ describe("order preservation", () => {
 describe("unknown element passthrough", () => {
   class Doc extends xmlModel(
     z.object({
-      [XML_STATE_KEY]: xmlStateSchema(),
+      _state: xmlStateSchema(),
       title: z.string(),
       body: z.string(),
     }),
@@ -629,12 +637,12 @@ describe("XML_STATE preserved for nested model instances", () => {
 
   it("records source XMLElement when source: true is passed to xmlStateSchema", () => {
     class WithSource extends xmlModel(
-      z.object({ [XML_STATE_KEY]: xmlStateSchema({ source: true }), value: z.string() }),
+      z.object({ _state: xmlStateSchema({ source: true }), value: z.string() }),
       { tagname: "item" },
     ) {}
     const instance = WithSource.fromXML("<item><value>hello</value></item>");
-    expect(instance[XML_STATE_KEY]?.source).toBeDefined();
-    expect(instance[XML_STATE_KEY]?.source?.name).toBe("item");
+    expect(instance._state?.source).toBeDefined();
+    expect(instance._state?.source?.name).toBe("item");
   });
 
   it("records source on nested instances when source: true is used", () => {
@@ -647,7 +655,7 @@ describe("XML_STATE preserved for nested model instances", () => {
       xml.root({ tagname: "outer" }),
     ) {}
     const instance = OuterWithSource.fromXML("<outer><inner><value>hello</value></inner></outer>");
-    expect(instance.inner[XML_STATE_KEY]?.source?.name).toBe("inner");
+    expect(instance.inner._xmlState?.source?.name).toBe("inner");
   });
 
   it("preserves unknown elements in arrays of nested models", () => {

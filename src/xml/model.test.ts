@@ -13,6 +13,7 @@ import {
   CarStandalone,
   Showroom,
 } from "./examples";
+import { xmlStateSchema } from "./codec";
 
 // -----------------------------------------------------------------------
 // Helpers
@@ -287,8 +288,12 @@ describe("xmlModel(Parent.dataSchema.extend(...)) — fresh class pattern", () =
 // -----------------------------------------------------------------------
 
 describe("order preservation", () => {
+  // Adding an `xmlStateSchema()` field tells the codec to track source element order
+  // and carry unknown elements through the round-trip. Without it, the codec writes
+  // fields in schema-definition order and drops unrecognised elements.
   const Schema = xml.root(
     z.object({
+      _xmlState: xmlStateSchema(),
       // schema order: a, b, c
       a: z.string(),
       b: z.string(),
@@ -307,6 +312,31 @@ describe("order preservation", () => {
     const bPos = out.indexOf("<b>");
     expect(cPos).toBeLessThan(aPos);
     expect(aPos).toBeLessThan(bPos);
+  });
+
+  it("falls back to schema order when _xmlState is absent", () => {
+    // Without xmlStateSchema(), the codec has no ordering state and always
+    // writes fields in schema-definition order (a, b, c) regardless of input order.
+    const SchemaNoState = xml.root(
+      z.object({
+        // schema order: a, b, c — no _xmlState field
+        a: z.string(),
+        b: z.string(),
+        c: z.string(),
+      }),
+      { tagname: "root" },
+    );
+    class RootNoState extends xmlModel(SchemaNoState) {}
+
+    const xmlStr = "<root><c>C</c><a>A</a><b>B</b></root>";
+    const instance = RootNoState.fromXML(xmlStr);
+    const out = RootNoState.toXMLString(instance);
+    // Output follows schema order: a before b before c
+    const aPos = out.indexOf("<a>");
+    const bPos = out.indexOf("<b>");
+    const cPos = out.indexOf("<c>");
+    expect(aPos).toBeLessThan(bPos);
+    expect(bPos).toBeLessThan(cPos);
   });
 });
 

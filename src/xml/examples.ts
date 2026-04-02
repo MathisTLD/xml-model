@@ -2,6 +2,42 @@
 import { z } from "zod";
 import { xml } from "./schema-meta";
 import { xmlModel } from "./model";
+import { xmlStateSchema } from "./codec";
+
+// #region xml-base
+/**
+ * Recommended base class for all xmlModel classes.
+ *
+ * Extending `XMLBase` instead of calling `xmlModel()` directly opts every subclass
+ * into round-trip preservation at no extra cost:
+ * - **Element ordering** — elements are re-emitted in source document order, not schema order.
+ * - **Unknown elements** — elements with no matching schema field are passed through verbatim.
+ *
+ * This matters whenever you read XML produced by a third party, modify a subset of fields,
+ * and write it back — plain `xmlModel()` would silently reorder elements and drop extensions.
+ *
+ * The `_xmlState` field holds the tracking state; it is intentionally excluded from XML output.
+ *
+ * @example
+ * class Device extends XMLBase.extend(
+ *   { name: z.string() },
+ *   xml.root({ tagname: "device" }),
+ * ) {}
+ */
+export const XMLBase = xmlModel(z.object({ _xmlState: xmlStateSchema() }));
+
+/**
+ * Like {@link XMLBase}, but also records the original `XMLElement` as `._xmlState.source`
+ * on each instance.
+ *
+ * @example
+ * const device = Device.fromXML(`<device>…</device>`);
+ * device._xmlState?.source; // XMLElement
+ */
+export const XMLBaseWithSource = xmlModel(
+  z.object({ _xmlState: xmlStateSchema({ source: true }) }),
+);
+// #endregion xml-base
 
 // #region event
 /** ISO 8601 date string ↔ `Date` codec. */
@@ -12,10 +48,11 @@ const isoDate = z.codec(z.string(), z.date(), {
 
 /**
  * An event with a typed `Date` field stored as an ISO 8601 string in XML.
+ * Extends `XMLBase` so element order and unknown elements are preserved across round-trips.
  * Demonstrates using `z.codec` to transform a raw XML string into a native JS type.
  */
-export class Event extends xmlModel(
-  z.object({
+export class Event extends XMLBase.extend(
+  {
     /** Event title: `<title>…</title>` */
     title: z.string(),
     /**
@@ -24,43 +61,46 @@ export class Event extends xmlModel(
      * `<published-at>2024-01-15T00:00:00.000Z</published-at>`
      */
     publishedAt: isoDate,
-  }),
-  { tagname: "event" },
+  },
+  xml.root({ tagname: "event" }),
 ) {}
 // #endregion event
 
 // #region engine
 /**
- * A car engine. Demonstrates a basic nested class with one XML attribute
- * (`type`) and one child element (`horsepower`).
+ * A car engine. Extends `XMLBase` so unknown vendor elements inside `<engine>`
+ * (e.g. manufacturer extensions) survive a read-modify-write cycle.
+ * Demonstrates a basic nested class with one XML attribute (`type`) and one
+ * child element (`horsepower`).
  */
-export class Engine extends xmlModel(
-  z.object({
+export class Engine extends XMLBase.extend(
+  {
     /** Fuel type stored as an XML attribute: `<engine type="petrol">` */
     type: xml.attr(z.string()),
     /** Power output stored as a child element: `<horsepower>150</horsepower>` */
     horsepower: z.number(),
-  }),
-  { tagname: "engine" },
+  },
+  xml.root({ tagname: "engine" }),
 ) {}
 // #endregion engine
 
 // #region vehicle
 /**
- * Base vehicle class. Demonstrates `xml.attr()` for identifier fields and
- * `xml.prop()` for child-element fields. Custom methods on the class are
- * available on every parsed instance.
+ * Base vehicle class. Extends `XMLBase` so all vehicle subclasses inherit
+ * round-trip preservation — element order and unknown extensions are kept
+ * intact without any per-subclass ceremony.
+ * Demonstrates `xml.attr()` for identifier fields and custom instance methods.
  */
-export class Vehicle extends xmlModel(
-  z.object({
+export class Vehicle extends XMLBase.extend(
+  {
     /** Unique identifier stored as a root XML attribute: `<vehicle vin="...">` */
     vin: xml.attr(z.string()),
     /** Manufacturer name stored as a child element: `<make>Toyota</make>` */
     make: z.string(),
     /** Production year stored as a child element: `<year>2020</year>` */
     year: z.number(),
-  }),
-  { tagname: "vehicle" },
+  },
+  xml.root({ tagname: "vehicle" }),
 ) {
   /** Returns a human-readable label for this vehicle. */
   label() {
@@ -127,8 +167,8 @@ export class Motorcycle extends Vehicle.extend(
  * `inline: true` places each item as a direct sibling element inside the
  * root tag rather than wrapping them in a container element.
  */
-export class Fleet extends xmlModel(
-  z.object({
+export class Fleet extends XMLBase.extend(
+  {
     /** Fleet name stored as a root XML attribute: `<fleet name="...">` */
     name: xml.attr(z.string()),
     /**
@@ -146,8 +186,8 @@ export class Fleet extends xmlModel(
       // FIXME: should be required for inline arrays
       tagname: "motorcycle",
     }),
-  }),
-  { tagname: "fleet" },
+  },
+  xml.root({ tagname: "fleet" }),
 ) {
   /** Total number of vehicles across all types in this fleet. */
   totalVehicles() {
@@ -175,8 +215,8 @@ export class Fleet extends xmlModel(
  * Contrast with `Fleet`, which uses `inline: true` so each `<car>` / `<motorcycle>`
  * is a direct child of `<fleet>` with no container wrapper.
  */
-export class Showroom extends xmlModel(
-  z.object({
+export class Showroom extends XMLBase.extend(
+  {
     /** Showroom name stored as a root XML attribute: `<showroom name="...">` */
     name: xml.attr(z.string()),
     /**
@@ -185,8 +225,8 @@ export class Showroom extends xmlModel(
      * individual item is not significant during parsing.
      */
     models: z.array(xml.root(z.string(), { tagname: "model" })),
-  }),
-  { tagname: "showroom" },
+  },
+  xml.root({ tagname: "showroom" }),
 ) {}
 // #endregion showroom
 
@@ -194,32 +234,33 @@ export class Showroom extends xmlModel(
 /**
  * A petrol engine, discriminated by `type="petrol"`.
  */
-export class PetrolEngine extends xmlModel(
-  z.object({
+export class PetrolEngine extends XMLBase.extend(
+  {
     type: xml.attr(z.literal("petrol")),
     horsepower: z.number(),
-  }),
-  { tagname: "engine" },
+  },
+  xml.root({ tagname: "engine" }),
 ) {}
 
 /**
  * An electric engine, discriminated by `type="electric"`.
  */
-export class ElectricEngine extends xmlModel(
-  z.object({
+export class ElectricEngine extends XMLBase.extend(
+  {
     type: xml.attr(z.literal("electric")),
     range: z.number(),
-  }),
-  { tagname: "engine" },
+  },
+  xml.root({ tagname: "engine" }),
 ) {}
 
 /**
- * Fallback for unrecognised engine types. Uses `z.looseObject` to pass
- * through unknown child elements during a round-trip.
+ * Fallback for unrecognised engine types. Unknown child elements are preserved
+ * through round-trips via XMLBase's state tracking.
  */
-export class UnknownEngine extends xmlModel(z.looseObject({ type: xml.attr(z.string()) }), {
-  tagname: "engine",
-}) {}
+export class UnknownEngine extends XMLBase.extend(
+  { type: xml.attr(z.string()) },
+  xml.root({ tagname: "engine" }),
+) {}
 
 /**
  * A union that matches known engine types by discriminator and falls back to
@@ -233,19 +274,23 @@ export const AnyEngine = z.union([
 
 // #region car-no-proto
 /**
- * Demonstrates the alternative to `.extend()`: passing a manually extended
- * schema to `xmlModel()`. This produces a **fresh class** with no prototype
- * link to `Vehicle` — instances are **not** `instanceof Vehicle` and Vehicle's
- * methods are unavailable.
+ * Demonstrates the alternative to `Vehicle.extend()`: listing all fields
+ * manually inside `XMLBase.extend()`. This produces a class with the same
+ * XML shape as `Car` but **no prototype link to `Vehicle`** — instances are
+ * **not** `instanceof Vehicle` and Vehicle's methods are unavailable.
  *
+ * Round-trip preservation still applies because the class extends `XMLBase`.
  * Use this pattern when you want a standalone class that reuses a schema shape
  * but does not need to be part of the parent class hierarchy.
  */
-export class CarStandalone extends xmlModel(
-  Vehicle.dataSchema.extend({
+export class CarStandalone extends XMLBase.extend(
+  {
+    vin: xml.attr(z.string()),
+    make: z.string(),
+    year: z.number(),
     doors: z.number(),
     engine: Engine.schema(),
-  }),
-  { tagname: "car" },
+  },
+  xml.root({ tagname: "car" }),
 ) {}
 // #endregion car-no-proto

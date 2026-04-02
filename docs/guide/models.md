@@ -81,7 +81,7 @@ flowchart LR
 :::
 
 - **XML codec** (`decode` / `encode`) — converts between `XMLElement` and inSchema types. For a `z.string()` field this is the text content; for a ZodObject it is a plain data object; for a nested model it is that model's raw data.
-- **Zod pipeline** (`dataSchema.parse` / `dataSchema.encode`) — applies `z.codec` transforms (e.g. ISO string → `Date`) and constructs class instances. Unknown keys are stripped here, which is why `XMLBase` is needed for round-trip preservation.
+- **Zod pipeline** (`dataSchema.parse` / `dataSchema.encode`) — applies `z.codec` transforms (e.g. ISO string → `Date`) and constructs class instances. Unknown keys are stripped here, which is why a state-bearing base class is needed for round-trip preservation.
 
 ## Class extension via `.extend()`
 
@@ -142,20 +142,27 @@ Use this when the class hierarchy doesn't matter and you just want to share fiel
 
 ## Round-trip preservation
 
-By default, `xmlModel()` does not preserve element ordering or unknown elements across a decode → encode cycle. Use `XMLBase` or `XMLBaseWithSource` as the base class to opt in.
+Plain `xmlModel()` does not preserve element ordering or unknown elements across a decode → encode cycle — Zod's `parse()` step strips unknown keys and the encode step writes fields in schema-definition order. This is fine for producer use-cases (your code owns the XML), but breaks when you need to read, modify, and re-write XML produced by someone else.
 
-### `XMLBase`
+To opt in, add an `xmlStateSchema()` field. The codec detects it automatically and uses that field to track the original element order and carry unknown elements through the round-trip.
 
-Extend `XMLBase` instead of `xmlModel()` to preserve:
+### Recommended pattern — extend a shared base
 
-- **Element ordering** — elements are re-emitted in the order they appeared in the source XML, not in schema-definition order.
-- **Unknown elements** — elements with no matching schema field are passed through verbatim on re-encode.
+Define a base class once and extend it everywhere. This is the preferred approach because it makes preservation the default for an entire class hierarchy rather than something you have to remember per-class:
 
 ```ts
-import { XMLBase, xml } from "xml-model";
+import { xmlModel, xmlStateSchema, xml } from "xml-model";
+import { z } from "zod";
+
+const XMLBase = xmlModel(z.object({ _xmlState: xmlStateSchema() }));
 
 class Device extends XMLBase.extend({ name: z.string() }, xml.root({ tagname: "device" })) {}
+class Sensor extends XMLBase.extend({ id: z.string() }, xml.root({ tagname: "sensor" })) {}
+```
 
+Any class that extends `XMLBase` (directly or transitively) gets preservation for free. Unknown elements inside nested models are also preserved as long as the nested class extends `XMLBase` too.
+
+```ts
 const device = Device.fromXML(`
   <device>
     <name>Router</name>
@@ -167,14 +174,14 @@ Device.toXMLString(device);
 // <device><name>Router</name><vendor-extension>custom data</vendor-extension></device>
 ```
 
-This also applies to nested model instances — unknown elements inside a nested class are preserved as long as that class also extends `XMLBase`.
+The field name `_xmlState` is a convention — choose any name you like. Only one `xmlStateSchema()` field is allowed per object schema (a second one throws at setup time).
 
-### `XMLBaseWithSource`
+### Accessing the source element
 
-`XMLBaseWithSource` behaves identically to `XMLBase` but additionally stores the original `XMLElement` on every instance.
+Pass `{ source: true }` to also store the original `XMLElement` on every instance. This is useful when you need to inspect the raw XML after parsing:
 
 ```ts
-import { XMLBaseWithSource, XML_STATE_KEY, xml } from "xml-model";
+const XMLBaseWithSource = xmlModel(z.object({ _xmlState: xmlStateSchema({ source: true }) }));
 
 class Device extends XMLBaseWithSource.extend(
   { name: z.string() },
@@ -182,10 +189,12 @@ class Device extends XMLBaseWithSource.extend(
 ) {}
 
 const device = Device.fromXML(`<device><name>Router</name></device>`);
-device[XML_STATE_KEY]?.source; // the original XMLElement
+device._xmlState?.source; // the original XMLElement
 ```
 
-> `XML_STATE_KEY` and `xmlStateSchema` are exported from `xml-model/xml/codec` for advanced use (custom base classes, direct state access), but are not part of the standard public API.
+### When to use plain `xmlModel()`
+
+Use `xmlModel()` directly — without a state field — only when you own and control the XML output entirely and round-trip fidelity is not a requirement. For example, generating XML from scratch where element order and extension elements are irrelevant.
 
 ## Direct JS class inheritance
 

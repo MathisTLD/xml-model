@@ -235,30 +235,30 @@ export interface XMLState {
   source?: XMLElement;
 }
 
-/**
- * String key used to store XML round-trip state on decoded data objects.
- * Using a string (rather than a Symbol) allows Zod's schema.parse() to
- * preserve it naturally when the key is included in the schema via xmlStateSchema().
- */
-export const XML_STATE_KEY = "__xml_state" as const;
+/** Tracks all schemas created by `xmlStateSchema()` for fast detection at setup time. */
+const xmlStateSchemas = new WeakSet<z.ZodType>();
 
 /**
  * Schema for the XML round-trip state field.
  *
- * Include in your base model schema under `XML_STATE_KEY` to preserve element ordering
- * and unknown elements through Zod's `schema.parse()` for nested model instances.
+ * Add a field with this schema to any `xmlModel` ZodObject to opt in to:
+ * - **Element ordering** — elements are re-emitted in source order, not schema order.
+ * - **Unknown elements** — unrecognised elements are passed through verbatim on re-encode.
  *
- * Pass `{ source: true }` to also record the original `XMLElement` on each instance.
+ * The field can be named anything; the codec detects it automatically.
+ * Pass `{ source: true }` to additionally store the original `XMLElement` on the instance.
  *
  * @example
- * class XMLBase extends xmlModel(z.object({
- *   [XML_STATE_KEY]: xmlStateSchema(),
- * }), { tagname: "base" }) {}
+ * class Device extends xmlModel(z.object({
+ *   _xmlState: xmlStateSchema(),
+ *   name: z.string(),
+ * }), { tagname: "device" }) {}
  *
  * // With source recording:
- * class XMLBase extends xmlModel(z.object({
- *   [XML_STATE_KEY]: xmlStateSchema({ source: true }),
- * }), { tagname: "base" }) {}
+ * class Device extends xmlModel(z.object({
+ *   _xmlState: xmlStateSchema({ source: true }),
+ *   name: z.string(),
+ * }), { tagname: "device" }) {}
  */
 export function xmlStateSchema(): z.ZodOptional<z.ZodCustom<XMLState>>;
 export function xmlStateSchema(options: {
@@ -267,14 +267,16 @@ export function xmlStateSchema(options: {
 export function xmlStateSchema(options?: {
   source?: boolean;
 }): z.ZodOptional<z.ZodCustom<XMLState>> {
-  return prop(z.custom<XMLState>().optional(), {
+  const result = prop(z.custom<XMLState>().optional(), {
     decode: options?.source
       ? (ctx, _next) => {
-          ((ctx.result as any)[XML_STATE_KEY] ??= {}).source = ctx.xml;
+          ((ctx.result as any)[ctx.property.name] ??= {}).source = ctx.xml;
         }
       : () => {},
     encode: () => {},
   }) as z.ZodOptional<z.ZodCustom<XMLState>>;
+  xmlStateSchemas.add(result);
+  return result;
 }
 
 function resolvePropertiesCodecOptions<S extends z.ZodObject<any>>(
@@ -287,6 +289,20 @@ function resolvePropertiesCodecOptions<S extends z.ZodObject<any>>(
   }
   // FIXME: don't use any
   return options as any;
+}
+
+/**
+ * Scans a ZodObject shape for a field created with `xmlStateSchema()`.
+ * Returns the field key if found, `undefined` if absent.
+ * Throws if more than one such field is present (not supported).
+ */
+function findXmlStateKey(shape: Record<string, z.ZodType>): string | undefined {
+  const keys = Object.keys(shape).filter((k) => xmlStateSchemas.has(shape[k]));
+  if (keys.length > 1)
+    throw new Error(
+      `Only one xmlStateSchema field is allowed per object schema, found: ${keys.join(", ")}`,
+    );
+  return keys[0];
 }
 
 export function decode<S extends z.ZodType>(schema: S, xml: XMLElement): z.input<S> {
@@ -483,12 +499,12 @@ registerDefault((schema) => {
 registerDefault(<S extends z.ZodObject>(schema: S) => {
   if (schema instanceof z.ZodObject) {
     const options = resolvePropertiesCodecOptions(schema);
+    const stateKey = findXmlStateKey(schema.def.shape as Record<string, z.ZodType>);
     return normalizeCodecOptions(schema, {
       decode(ctx) {
-        const sequence: OrderEntry[] = [];
-        const result: Partial<z.input<S>> & { [XML_STATE_KEY]: XMLState } = {
-          [XML_STATE_KEY]: { sequence },
-        } as any;
+        const sequence: OrderEntry[] | undefined = stateKey ? [] : undefined;
+        const result = {} as any;
+        if (stateKey) result[stateKey] = { sequence };
 
         // build the base property decoding contexts (with tagname)
         // FIXME: typescript error
@@ -531,7 +547,7 @@ registerDefault(<S extends z.ZodObject>(schema: S) => {
           }
           if (!matches.length) {
             // element never matched, mark as unsupported
-            sequence.push(el);
+            if (sequence) sequence.push(el);
             continue;
           } else if (matches.length === 1) {
             // element matched exactly one property
@@ -545,7 +561,7 @@ registerDefault(<S extends z.ZodObject>(schema: S) => {
                   "Matching multiple elements for a single property is only supported when `inlineProperty` is true",
                 );
             } else {
-              sequence.push(propName);
+              if (sequence) sequence.push(propName);
               seenProperties.add(propName);
             }
           } else {
@@ -559,7 +575,7 @@ registerDefault(<S extends z.ZodObject>(schema: S) => {
         // then we add unmatched properties to the sequence so that they are not omitted on encoding
         for (const propName in options) {
           // TODO: should we use special ordering ?
-          if (!seenProperties.has(propName)) sequence.push(propName);
+          if (!seenProperties.has(propName) && sequence) sequence.push(propName);
         }
 
         // Convert each matched field
@@ -606,9 +622,11 @@ registerDefault(<S extends z.ZodObject>(schema: S) => {
           attributes: {},
           elements: [],
         };
-        const sequence =
-          ((data as any)[XML_STATE_KEY] as XMLState | undefined)?.sequence ?? Object.keys(options);
-        for (const item of sequence) {
+        const sequence = stateKey
+          ? ((data as any)[stateKey] as XMLState | undefined)?.sequence
+          : undefined;
+        const iterOrder = sequence ?? Object.keys(options);
+        for (const item of iterOrder) {
           if (typeof item === "string") {
             const o = options[item];
             if (!o) {
