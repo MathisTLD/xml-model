@@ -17,13 +17,13 @@ Use `xml.prop(schema, options)` only when you need to customise the element — 
 
 ### `xml.prop()` options
 
-| Option    | Type                                  | Description                                                                                                             |
-| --------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `tagname` | `string`                              | Override the element tag name.                                                                                          |
-| `inline`  | `boolean`                             | For arrays: place items as direct siblings instead of inside a wrapper element. See [Arrays](#arrays).                  |
-| `match`   | `string \| RegExp \| (el) => boolean` | Custom predicate for matching source elements during parsing.                                                           |
-| `decode`  | `(ctx, next) => void`                 | Custom decoding hook. Call `next()` to run the default decode logic. See [Custom decode/encode](#custom-decode-encode). |
-| `encode`  | `(ctx, next) => void`                 | Custom encoding hook. Call `next()` to run the default encode logic. See [Custom decode/encode](#custom-decode-encode). |
+| Option    | Type                        | Description                                                                                                             |
+| --------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `tagname` | `string`                    | Override the element tag name.                                                                                          |
+| `inline`  | `boolean`                   | For arrays: place items as direct siblings instead of inside a wrapper element. See [Arrays](#arrays).                  |
+| `match`   | `RegExp \| (el) => boolean` | Custom predicate for matching source elements during parsing.                                                           |
+| `decode`  | `(ctx, next) => void`       | Custom decoding hook. Call `next()` to run the default decode logic. See [Custom decode/encode](#custom-decode-encode). |
+| `encode`  | `(ctx, next) => void`       | Custom encoding hook. Call `next()` to run the default encode logic. See [Custom decode/encode](#custom-decode-encode). |
 
 When you call `xml.prop(options)` with no schema argument, it returns a Zod `GlobalMeta` object. This lets you attach the annotation with Zod's own `.meta()` — both forms are equivalent:
 
