@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { XML, type XMLElement, type XMLRoot, type StringifyOptions } from "./xml-js";
-import { getUserOptions, prop } from "./schema-meta";
+import { getOwnUserOptions, prop, root } from "./schema-meta";
 import { kebabCase } from "@/util/kebab-case";
-import { isZodType } from "@/util/zod";
+import { getParentSchema, isZodType } from "@/util/zod";
 
 export class XMLCodecError extends Error {
   readonly path: readonly (string | number)[];
@@ -42,6 +42,8 @@ type PropKey<S extends z.ZodObject> = keyof z.input<S> & string;
 
 export interface CodecOptions<S extends z.ZodType> {
   schema: S;
+  /** Resolved options of the wrapped inner schema, if any (e.g. the inner type of ZodOptional). */
+  parent: CodecOptions<z.ZodType> | undefined;
   tagname(ctx: RootEncodingContext<S>): string;
   decode(ctx: RootDecodingContext<S>): z.input<S>;
   encode(ctx: RootEncodingContext<S>): XMLElement;
@@ -113,18 +115,20 @@ export interface PropertyEncodingContext<
 export function normalizeCodecOptions<S extends z.ZodType>(
   schema: S,
   options: UserCodecOptions<S> = {},
+  parent: CodecOptions<z.ZodType> | undefined = undefined,
 ): CodecOptions<S> {
   let _defaultOptions: CodecOptions<S>;
   const defaultOptions = () => {
     // FIXME: this could cause infinite recursion
     if (!_defaultOptions) {
-      _defaultOptions = resolveDefault(schema);
-      if (!_defaultOptions) {
+      const resolved = resolveDefault(schema);
+      if (!resolved) {
         // TODO: dedicated exception
         throw new Error(
           `Failed to resolve default codec options for schema of type ${schema.type}`,
         );
       }
+      _defaultOptions = resolved;
     }
     return _defaultOptions;
   };
@@ -135,10 +139,12 @@ export function normalizeCodecOptions<S extends z.ZodType>(
       ? () => userTagname
       : typeof userTagname === "function"
         ? userTagname
-        : () => {
-            // TODO: allow customizable default behavior
-            throw new Error("tagname is not defined");
-          };
+        : parent
+          ? parent.tagname // inherit same function reference — lets ZodCodec encode detect real overrides
+          : () => {
+              // TODO: allow customizable default behavior
+              throw new Error("tagname is not defined");
+            };
 
   const userPropTagname = options.propertyTagname;
   const propertyTagname: CodecOptions<S>["propertyTagname"] =
@@ -146,9 +152,11 @@ export function normalizeCodecOptions<S extends z.ZodType>(
       ? () => userPropTagname
       : typeof userPropTagname === "function"
         ? userPropTagname
-        : (ctx) => kebabCase(ctx.name);
+        : parent
+          ? (ctx) => parent.propertyTagname(ctx)
+          : (ctx) => kebabCase(ctx.name);
 
-  const inlineProperty = options.inlineProperty ?? false;
+  const inlineProperty = options.inlineProperty ?? parent?.inlineProperty ?? false;
 
   const userMatch = options.propertyMatch;
   const propertyMatch: CodecOptions<S>["propertyMatch"] =
@@ -156,19 +164,22 @@ export function normalizeCodecOptions<S extends z.ZodType>(
       ? (el) => (userMatch as RegExp).test(el.name)
       : typeof userMatch === "function"
         ? userMatch
-        : (el, ctx) => el.name === ctx.tagname;
+        : parent
+          ? (el, ctx) => parent.propertyMatch(el, ctx)
+          : (el, ctx) => el.name === ctx.tagname;
 
   const decode: CodecOptions<S>["decode"] = options.decode
     ? (ctx) => options.decode!(ctx, () => defaultOptions().decode(ctx))
-    : (ctx) => defaultOptions().decode(ctx);
+    : defaultOptions().decode;
   const encode: CodecOptions<S>["encode"] = options.encode
     ? (ctx) => options.encode!(ctx, () => defaultOptions().encode(ctx))
-    : (ctx) => defaultOptions().encode(ctx);
+    : defaultOptions().encode;
 
-  // Self-referential — closures capture `result` so the default
+  // Self-referential — closures capture `result` so the built-in
   // decodeAsProperty/encodeAsProperty can call the schema's own decode/encode.
   const result: CodecOptions<S> = {
     schema,
+    parent,
     tagname,
     decode,
     encode,
@@ -177,8 +188,16 @@ export function normalizeCodecOptions<S extends z.ZodType>(
     propertyMatch,
     decodeAsProperty:
       options.decodeAsProperty ??
+      parent?.decodeAsProperty ??
       function (ctx) {
-        const res = result.decode({ options: result, xml: ctx.property.xml });
+        // Use ctx.property.options (the field's resolved codec options) rather than closing over
+        // `result`, so that when this fallback is inherited by a wrapper (ZodOptional, ZodDefault)
+        // via parent?.decodeAsProperty, it still routes through the wrapper's own decode —
+        // which handles null xml correctly (undefined for optional, default value for ZodDefault).
+        const res = ctx.property.options.decode({
+          options: ctx.property.options,
+          xml: ctx.property.xml,
+        });
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (ctx.result as any)[ctx.property.name as string] = res;
       },
@@ -220,8 +239,15 @@ function resolveCodecOptions<S extends z.ZodType>(schema: S): CodecOptions<S> {
   const cached = cache.get(schema);
   if (cached) return cached as CodecOptions<S>;
 
-  const userOpts = getUserOptions(schema);
-  const options = normalizeCodecOptions(schema, userOpts);
+  // FIXME: skipping parent for ZodLazy is a coarse workaround for infinite recursion on
+  // self-referential schemas (the getter returns the same schema being resolved). A proper
+  // solution should detect cycles via an in-progress set rather than special-casing ZodLazy,
+  // and should also handle recursive schemas built with plain getters or other constructs.
+  const parentSchema = schema instanceof z.ZodLazy ? undefined : getParentSchema(schema);
+  const parent = parentSchema ? resolveCodecOptions(parentSchema) : undefined;
+
+  const userOpts = getOwnUserOptions(schema);
+  const options = normalizeCodecOptions(schema, userOpts, parent);
   cache.set(schema, options);
   return options;
 }
@@ -267,7 +293,15 @@ export function xmlStateSchema(options: {
 export function xmlStateSchema(options?: {
   source?: boolean;
 }): z.ZodOptional<z.ZodCustom<XMLState>> {
-  const result = prop(z.custom<XMLState>().optional(), {
+  // xmlStateSchema is only used as a ZodObject property — its root-level decode/encode
+  // are never called. The dummy implementations exist solely because normalizeCodecOptions
+  // requires every schema to resolve a default handler via registerDefault, and ZodCustom
+  // has no registered one.
+  const inner = root(z.custom<XMLState>(), {
+    decode: () => ({}) as XMLState,
+    encode: () => ({}) as XMLElement,
+  });
+  const result = prop(inner.optional(), {
     decode: options?.source
       ? (ctx, _next) => {
           ((ctx.result as any)[ctx.property.name] ??= {}).source = ctx.xml;
@@ -277,6 +311,16 @@ export function xmlStateSchema(options?: {
   }) as z.ZodOptional<z.ZodCustom<XMLState>>;
   xmlStateSchemas.add(result);
   return result;
+}
+
+/** Returns true if any schema in the wrapper chain has a user-defined tagname. */
+function hasUserTagname(schema: z.ZodType): boolean {
+  let s: z.ZodType | undefined = schema;
+  while (s) {
+    if (getOwnUserOptions(s).tagname) return true;
+    s = getParentSchema(s);
+  }
+  return false;
 }
 
 function resolvePropertiesCodecOptions<S extends z.ZodObject<any>>(
@@ -400,14 +444,14 @@ registerDefault((schema) => {
     const elSchema = schema.def.element;
     if (!isZodType(elSchema)) throw new Error(`Expected a ZodType, got ${elSchema}`);
     const elOptions = resolveCodecOptions(elSchema);
-    const elHasOwnTagname = Boolean(getUserOptions(elSchema).tagname);
+    const elHasOwnTagname = hasUserTagname(elSchema);
     return normalizeCodecOptions(schema, {
       decode(ctx) {
         const { xml } = ctx;
         // FIXME: typescript should warn that xml is possibly null (it doesn't)
         if (!xml) return [];
         // expects elements to be wrapped in the children of `xml`
-        return xml.elements
+        return (xml.elements ?? [])
           .filter((el) => el.type === "element")
           .map((el) => elOptions.decode({ options: elOptions, xml: el }));
       },
@@ -438,23 +482,27 @@ registerDefault((schema) => {
     const inner = schema.def.innerType;
     if (!isZodType(inner)) throw new Error(`Expected a ZodType, got ${inner}`);
     const innerOptions = resolveCodecOptions(inner);
-    return normalizeCodecOptions(schema, {
-      decode(ctx) {
-        if (ctx.xml === null) return undefined;
-        else return innerOptions.decode(ctx);
+    return normalizeCodecOptions(
+      schema,
+      {
+        decode(ctx) {
+          if (ctx.xml === null) return undefined;
+          else return innerOptions.decode(ctx);
+        },
+        encode(ctx) {
+          if (typeof ctx.data === "undefined")
+            return {} as XMLElement; // equivalent of empty XML
+          else return innerOptions.encode(ctx);
+        },
+        decodeAsProperty(ctx) {
+          if (ctx.property.xml !== null) innerOptions.decodeAsProperty(ctx);
+        },
+        encodeAsProperty(ctx) {
+          if (typeof ctx.property.value !== "undefined") innerOptions.encodeAsProperty(ctx);
+        },
       },
-      encode(ctx) {
-        if (typeof ctx.data === "undefined")
-          return {} as XMLElement; // equivalent of empty XML
-        else return innerOptions.encode(ctx);
-      },
-      decodeAsProperty(ctx) {
-        if (ctx.property.xml !== null) innerOptions.decodeAsProperty(ctx);
-      },
-      encodeAsProperty(ctx) {
-        if (typeof ctx.property.value !== "undefined") innerOptions.encodeAsProperty(ctx);
-      },
-    });
+      innerOptions,
+    );
   }
   if (schema instanceof z.ZodDefault) {
     const { innerType: inner, defaultValue } = schema.def;
@@ -462,15 +510,19 @@ registerDefault((schema) => {
     const innerOptions = resolveCodecOptions(inner);
     const getDefault =
       typeof schema.def.defaultValue === "function" ? schema.def.defaultValue : () => defaultValue;
-    return normalizeCodecOptions(schema, {
-      decode(ctx) {
-        if (!ctx.xml) return getDefault();
-        else return innerOptions.decode(ctx);
+    return normalizeCodecOptions(
+      schema,
+      {
+        decode(ctx) {
+          if (!ctx.xml) return getDefault();
+          else return innerOptions.decode(ctx);
+        },
+        encode(ctx) {
+          return innerOptions.encode(ctx);
+        },
       },
-      encode(ctx) {
-        return innerOptions.encode(ctx);
-      },
-    });
+      innerOptions,
+    );
   }
   if (schema instanceof z.ZodLazy) {
     const inner = schema.def.getter();
@@ -484,26 +536,30 @@ registerDefault((schema) => {
       throw new Error(`Expected schema.def.in to be a ZodType, got ${inSchema}`);
     // TODO: check that user options are not lost
     const inputCodecOptions = resolveCodecOptions(inSchema);
-    return normalizeCodecOptions(schema, {
-      decode({ xml }) {
-        // Operate at the inSchema level only — return the raw decoded value without
-        // applying the forward transform. The caller (fromXML via dataSchema.parse)
-        // applies transforms as a separate layer after decode() completes.
-        return inputCodecOptions.decode({ options: inputCodecOptions, xml });
+    return normalizeCodecOptions(
+      schema,
+      {
+        decode({ xml }) {
+          // Operate at the inSchema level only — return the raw decoded value without
+          // applying the forward transform. The caller (fromXML via dataSchema.parse)
+          // applies transforms as a separate layer after decode() completes.
+          return inputCodecOptions.decode({ options: inputCodecOptions, xml });
+        },
+        encode(ctx) {
+          // ctx.data is already at the inSchema level — the caller (toXML via dataSchema.encode)
+          // has already applied all reverse transforms before calling encode().
+          // Propagate the caller's tagname override so that a property-level tagname
+          // (e.g. `xml.prop(Schema, { tagname: "audio-in" })`) is not silently replaced
+          // by the schema's own root tagname (e.g. `xml.root({ tagname: "audio" })`).
+          const innerOpts =
+            ctx.options.tagname !== inputCodecOptions.tagname
+              ? { ...inputCodecOptions, tagname: ctx.options.tagname }
+              : inputCodecOptions;
+          return innerOpts.encode({ options: innerOpts, data: ctx.data });
+        },
       },
-      encode(ctx) {
-        // ctx.data is already at the inSchema level — the caller (toXML via dataSchema.encode)
-        // has already applied all reverse transforms before calling encode().
-        // Propagate the caller's tagname override so that a property-level tagname
-        // (e.g. `xml.prop(Schema, { tagname: "audio-in" })`) is not silently replaced
-        // by the schema's own root tagname (e.g. `xml.root({ tagname: "audio" })`).
-        const innerOpts =
-          ctx.options.tagname !== inputCodecOptions.tagname
-            ? { ...inputCodecOptions, tagname: ctx.options.tagname }
-            : inputCodecOptions;
-        return innerOpts.encode({ options: innerOpts, data: ctx.data });
-      },
-    });
+      inputCodecOptions,
+    );
   }
   if (schema instanceof z.ZodLiteral) {
     // TODO: test with mixed types

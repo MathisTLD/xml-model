@@ -6,7 +6,7 @@ import type {
   PropertyEncodingContext,
 } from "./codec";
 import { XML, type XMLElement } from "./xml-js";
-import { getParentSchema, isZodType } from "@/util/zod";
+import { isZodType } from "@/util/zod";
 import { kebabCase } from "@/util/kebab-case";
 
 const metaKey = "@@xml-model" as const;
@@ -200,7 +200,7 @@ export function attr<PS extends z.ZodType>(
 }
 
 // ---------------------------------------------------------------------------
-// Namespace export + getUserOptions
+// Namespace export
 // ---------------------------------------------------------------------------
 
 /** Namespace object for XML metadata helpers. */
@@ -209,29 +209,4 @@ export const xml = { root, prop, attr };
 export function getOwnUserOptions<S extends z.ZodType>(schema: S): UserCodecOptions<S> {
   const meta = schema.meta();
   return (meta?.[metaKey] ?? {}) as UserCodecOptions<S>;
-}
-
-// Only these fields propagate upward through wrapper schemas (ZodOptional, ZodDefault, etc.).
-// decode/encode intentionally excluded: they stay at the schema level where they were defined,
-// letting wrapper types (optional null-check, default value) apply before delegating downward.
-const INHERITABLE_KEYS = [
-  "tagname",
-  "propertyTagname",
-  "inlineProperty",
-  "propertyMatch",
-  "decodeAsProperty",
-  "encodeAsProperty",
-] as const satisfies ReadonlyArray<keyof UserCodecOptions>;
-
-export function getUserOptions<S extends z.ZodType>(schema: S): UserCodecOptions<S> {
-  const own = getOwnUserOptions(schema);
-  const parentSchema = getParentSchema(schema);
-  if (!parentSchema) return own;
-  const parentOptions = getUserOptions(parentSchema);
-  const inherited: UserCodecOptions = {};
-  for (const key of INHERITABLE_KEYS) {
-    if (parentOptions[key] !== undefined && own[key] === undefined)
-      (inherited as any)[key] = parentOptions[key];
-  }
-  return { ...inherited, ...own } as UserCodecOptions<S>;
 }

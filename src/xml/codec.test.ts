@@ -106,6 +106,28 @@ describe("optional fields", () => {
     const out = codec.encode(value);
     expect(out).not.toContain("optional");
   });
+
+  it("does not call custom encode hook when optional field is absent", () => {
+    let hookCalled = false;
+    const BugSchema = xml.root(
+      z.object({
+        required: z.string(),
+        optional: xml
+          .prop(z.string(), {
+            encode(ctx, next) {
+              hookCalled = true;
+              next();
+            },
+          })
+          .optional(),
+      }),
+      { tagname: "doc" },
+    );
+    const codec = xmlCodec(BugSchema);
+    const value = codec.decode("<doc><required>a</required></doc>");
+    codec.encode(value);
+    expect(hookCalled).toBe(false);
+  });
 });
 
 // -----------------------------------------------------------------------
@@ -404,10 +426,10 @@ describe("toXMLString options", () => {
 });
 
 // -----------------------------------------------------------------------
-// getUserOptions parent-schema inheritance
+// parent-schema inheritance via CodecOptions.parent
 // -----------------------------------------------------------------------
 
-describe("getUserOptions parent-schema inheritance", () => {
+describe("parent-schema inheritance via CodecOptions.parent", () => {
   const EngineSchema = xml.root(z.object({ horsepower: z.number() }), { tagname: "engine" });
 
   class Engine extends xmlModel(EngineSchema) {}
@@ -610,6 +632,16 @@ describe("regression — xml.attr with optional wrapper", () => {
   it("returns undefined for absent optional attribute", () => {
     const result = xmlCodec(Schema).decode("<book><title>Dune</title></book>");
     expect(result.lang).toBeUndefined();
+  });
+
+  it("reads attribute through default wrapper", () => {
+    const DefaultSchema = xml.root(
+      z.object({ lang: xml.attr(z.string()).default("en"), title: z.string() }),
+      { tagname: "book" },
+    );
+    const codec = xmlCodec(DefaultSchema);
+    expect(codec.decode("<book><title>Dune</title></book>").lang).toBe("en");
+    expect(codec.decode('<book lang="fr"><title>Dune</title></book>').lang).toBe("fr");
   });
 });
 
