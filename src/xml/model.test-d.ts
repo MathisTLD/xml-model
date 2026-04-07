@@ -3,6 +3,8 @@ import { z } from "zod";
 import { xml } from "./schema-meta";
 import { Vehicle, Car, SportCar, Fleet } from "./examples";
 
+/* eslint-disable typescript-eslint(unbound-method) */
+
 describe("class model", () => {
   test(".schema() returns a schema that returns an instance of the class", () => {
     const schema = Car.schema();

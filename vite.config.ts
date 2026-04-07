@@ -1,4 +1,3 @@
-/// <reference types="vite-plus" />
 import { defineConfig } from "vite-plus";
 
 import { Lib } from "marmotte/vite/lib";

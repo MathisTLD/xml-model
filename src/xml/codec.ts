@@ -4,6 +4,8 @@ import { getOwnUserOptions, prop, root } from "./schema-meta";
 import { kebabCase } from "@/util/kebab-case";
 import { getParentSchema, isZodType } from "@/util/zod";
 
+/* eslint-disable typescript-eslint(restrict-template-expressions), typescript-eslint(no-base-to-string) */
+
 export class XMLCodecError extends Error {
   readonly path: readonly (string | number)[];
   readonly rawMessage: string;
@@ -44,19 +46,20 @@ export interface CodecOptions<S extends z.ZodType> {
   schema: S;
   /** Resolved options of the wrapped inner schema, if any (e.g. the inner type of ZodOptional). */
   parent: CodecOptions<z.ZodType> | undefined;
-  tagname(ctx: RootEncodingContext<S>): string;
-  decode(ctx: RootDecodingContext<S>): z.input<S>;
-  encode(ctx: RootEncodingContext<S>): XMLElement;
+  tagname(this: void, ctx: RootEncodingContext<S>): string;
+  decode(this: void, ctx: RootDecodingContext<S>): z.input<S>;
+  encode(this: void, ctx: RootEncodingContext<S>): XMLElement;
   // property options
-  propertyTagname: (ctx: { name: string; options: CodecOptions<z.ZodType> }) => string;
+  propertyTagname: (this: void, ctx: { name: string; options: CodecOptions<z.ZodType> }) => string;
   /** if true, XML representation is not contained in a single XML tag */
   inlineProperty: boolean;
   propertyMatch: (
+    this: void,
     el: XMLElement,
     ctx: { name: string; tagname: string; options: CodecOptions<z.ZodType> },
   ) => boolean;
-  decodeAsProperty(ctx: PropertyDecodingContext): void;
-  encodeAsProperty(ctx: PropertyEncodingContext): void;
+  decodeAsProperty(this: void, ctx: PropertyDecodingContext): void;
+  encodeAsProperty(this: void, ctx: PropertyEncodingContext): void;
 }
 
 /**
@@ -557,7 +560,8 @@ registerDefault((schema) => {
           // by the schema's own root tagname (e.g. `xml.root({ tagname: "audio" })`).
           const innerOpts =
             ctx.options.tagname !== inputCodecOptions.tagname
-              ? { ...inputCodecOptions, tagname: ctx.options.tagname }
+              ? // eslint-disable-next-line: typescript-eslint(unbound-method)
+                { ...inputCodecOptions, tagname: ctx.options.tagname }
               : inputCodecOptions;
           return innerOpts.encode({ options: innerOpts, data: ctx.data });
         },

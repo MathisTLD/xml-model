@@ -15,6 +15,8 @@ import {
 } from "./examples";
 import { xmlStateSchema } from "./codec";
 
+/* eslint-disable typescript-eslint(unbound-method) */
+
 // -----------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------
