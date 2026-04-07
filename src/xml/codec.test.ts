@@ -998,3 +998,46 @@ describe("parseXML / toXML / stringifyXML", () => {
     expect(stringifyXML(Schema, v)).toBe(xmlStr);
   });
 });
+
+// -----------------------------------------------------------------------
+// Recursive schemas (z.lazy)
+// -----------------------------------------------------------------------
+
+describe("recursive schemas", () => {
+  type TreeNode = { label: string; children?: TreeNode[] };
+  const TreeSchema: z.ZodType<TreeNode> = xml.root(
+    z.object({
+      label: z.string(),
+      children: xml.prop(z.array(z.lazy(() => TreeSchema)), {
+        inline: true,
+        tagname: "node",
+      }),
+    }),
+    { tagname: "node" },
+  );
+
+  it("resolves without infinite recursion", () => {
+    expect(() => xmlCodec(TreeSchema)).not.toThrow();
+  });
+
+  it("decodes a flat node", () => {
+    const result = parseXML(TreeSchema, "<node><label>root</label></node>");
+    expect(result.label).toBe("root");
+    expect(result.children).toEqual([]);
+  });
+
+  it("decodes nested nodes", () => {
+    const result = parseXML(
+      TreeSchema,
+      "<node><label>root</label><node><label>child</label></node></node>",
+    );
+    expect(result.label).toBe("root");
+    expect(result.children).toHaveLength(1);
+    expect(result.children![0].label).toBe("child");
+  });
+
+  it("round-trips nested nodes", () => {
+    const xml = "<node><label>root</label><node><label>child</label></node></node>";
+    expect(stringifyXML(TreeSchema, parseXML(TreeSchema, xml))).toBe(xml);
+  });
+});

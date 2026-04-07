@@ -140,7 +140,7 @@ export function normalizeCodecOptions<S extends z.ZodType>(
       : typeof userTagname === "function"
         ? userTagname
         : parent
-          ? parent.tagname // inherit same function reference — lets ZodCodec encode detect real overrides
+          ? (ctx) => parent.tagname(ctx) // lazy: read parent.tagname at call time (parent may be a placeholder)
           : () => {
               // TODO: allow customizable default behavior
               throw new Error("tagname is not defined");
@@ -239,17 +239,19 @@ function resolveCodecOptions<S extends z.ZodType>(schema: S): CodecOptions<S> {
   const cached = cache.get(schema);
   if (cached) return cached as CodecOptions<S>;
 
-  // FIXME: skipping parent for ZodLazy is a coarse workaround for infinite recursion on
-  // self-referential schemas (the getter returns the same schema being resolved). A proper
-  // solution should detect cycles via an in-progress set rather than special-casing ZodLazy,
-  // and should also handle recursive schemas built with plain getters or other constructs.
-  const parentSchema = schema instanceof z.ZodLazy ? undefined : getParentSchema(schema);
-  const parent = parentSchema ? resolveCodecOptions(parentSchema) : undefined;
+  // Cache a placeholder immediately to break recursive cycles (e.g. ZodLazy self-referential schemas).
+  // Any closure that captures `parent` will read `parent.tagname` etc. at call time, so the
+  // placeholder being empty at setup time is fine — it will be fully populated before any
+  // decode/encode call can happen.
+  const placeholder = {} as CodecOptions<S>;
+  cache.set(schema, placeholder);
 
+  const parentSchema = getParentSchema(schema);
+  const parent = parentSchema ? resolveCodecOptions(parentSchema) : undefined;
   const userOpts = getOwnUserOptions(schema);
   const options = normalizeCodecOptions(schema, userOpts, parent);
-  cache.set(schema, options);
-  return options;
+  Object.assign(placeholder, options);
+  return placeholder;
 }
 
 type OrderEntry = string | XMLElement;
