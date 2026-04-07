@@ -8,11 +8,7 @@
     "paths": {
       "@/*": ["./src/*"]
     },
-    // "verbatimModuleSyntax": true
-    "useDefineForClassFields": false,
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": false,
-    "strictPropertyInitialization": false // needed for XML models
+    "verbatimModuleSyntax": true
   },
   "include": ["src"]
 }
