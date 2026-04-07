@@ -20,7 +20,7 @@ declare module "zod" {
 }
 
 /** Merge `partial` into the schema's existing meta (shallow spread, no overwrite). */
-function setMeta<S extends z.ZodType>(schema: S, partial: UserCodecOptions): S {
+function setMeta<S extends z.ZodType>(schema: S, partial: UserCodecOptions<S>): S {
   const existing = schema.meta()?.[metaKey] ?? {};
   return schema.meta({ [metaKey]: { ...existing, ...partial } } as z.GlobalMeta) as S;
 }
@@ -80,13 +80,12 @@ function normalizePropOptions(options?: UserPropOptions): UserCodecOptions {
         });
         if (XML.isEmpty(res)) return;
         if (property.options.inlineProperty) {
-          ctx.result.elements.push(
-            ...res.elements.map((el) =>
-              el.type === "element" ? { ...el, name: property.tagname } : el,
-            ),
+          const elements = res.elements?.map((el) =>
+            el.type === "element" ? { ...el, name: property.tagname } : el,
           );
+          if (elements) (ctx.result.elements ??= []).push(...elements);
         } else {
-          ctx.result.elements.push({ ...res, name: property.tagname });
+          (ctx.result.elements ??= []).push({ ...res, name: property.tagname });
         }
       };
       userEncode(ctx, next);
@@ -102,7 +101,7 @@ function normalizePropOptions(options?: UserPropOptions): UserCodecOptions {
 export function root<S extends z.ZodType>(schema: S, options: UserRootOptions<S>): S;
 export function root(options: UserRootOptions): z.GlobalMeta;
 export function root<S extends z.ZodType>(
-  optionsOrSchema: S | UserRootOptions,
+  optionsOrSchema: S | UserRootOptions<S>,
   options?: UserRootOptions<S>,
 ) {
   if (isZodType(optionsOrSchema)) {
@@ -141,7 +140,7 @@ export function prop<PS extends z.ZodType>(
   options?: UserPropOptions,
 ) {
   if (isZodType(optionsOrSchema)) {
-    return setMeta(optionsOrSchema, normalizePropOptions(options));
+    return setMeta(optionsOrSchema, normalizePropOptions(options) as UserCodecOptions<PS>);
   } else {
     return { [metaKey]: normalizePropOptions(optionsOrSchema) } as z.GlobalMeta;
   }
@@ -177,7 +176,7 @@ export function attr<PS extends z.ZodType>(
   options?: AttributePropOptions,
 ) {
   const opts = isZodType(optionsOrSchema) ? (options ?? {}) : (optionsOrSchema ?? {});
-  const partial: UserCodecOptions = {
+  const partial: UserCodecOptions<PS> = {
     decodeAsProperty(ctx) {
       const { options: propOptions } = ctx.property;
       const attrName = opts.name ?? kebabCase(ctx.property.name);
@@ -189,7 +188,7 @@ export function attr<PS extends z.ZodType>(
       const { value } = ctx.property;
       const attrName = opts.name ?? kebabCase(ctx.property.name);
       // TODO: throw error if attribute already set?
-      ctx.result.attributes[attrName] = value.toString();
+      (ctx.result.attributes ??= {})[attrName] = String(value);
     },
   };
   if (isZodType(optionsOrSchema)) {

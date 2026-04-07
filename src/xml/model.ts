@@ -45,7 +45,9 @@ export function xmlModel<S extends z.ZodObject<any>>(
         input = XML.parse(input);
       }
       if (XML.isRoot(input)) {
-        input = XML.elementFromRoot(input);
+        const el = XML.elementFromRoot(input);
+        if (!el) throw new TypeError("No root element");
+        input = el;
       }
       // decode() operates at the inSchema level, returning raw XML-decoded values
       // (e.g. strings where the schema has a string → Date codec).

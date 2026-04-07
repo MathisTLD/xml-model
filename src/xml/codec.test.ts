@@ -567,7 +567,7 @@ describe("next middleware — root-level encode", () => {
       tagname: "book",
       encode: (ctx, next) => {
         const el = next();
-        el.attributes["v"] = "2";
+        (el.attributes ??= {})["v"] = "2";
         return el;
       },
     });
@@ -603,7 +603,7 @@ describe("next middleware — property-level encode", () => {
         title: xml.prop(z.string(), {
           encode: (ctx, next) => {
             next();
-            ctx.result.attributes["mark"] = "1";
+            (ctx.result.attributes ??= {})["mark"] = "1";
           },
         }),
       }),
@@ -883,7 +883,7 @@ describe("discriminated unions", () => {
   const xmlStr = "<garage>" + petrolXml + electricXml + hybridXml + "</garage>";
 
   it.each(["discriminated union", "union"])("should decode engine (%s)", (type) => {
-    const codec = { "discriminated union": engineCodec, union: engineUnionCodec }[type];
+    const codec = { "discriminated union": engineCodec, union: engineUnionCodec }[type]!;
     const petrol = codec.decode(petrolXml);
     expect(petrol).toBeInstanceOf(PetrolEngine);
 
@@ -947,7 +947,7 @@ describe("parseXML / toXML / stringifyXML", () => {
   });
 
   it("parseXML accepts an XMLElement", () => {
-    const el = XML.elementFromRoot(XML.parse(xmlStr));
+    const el = XML.elementFromRoot(XML.parse(xmlStr))!;
     const v = parseXML(Schema, el);
     expect(v.vin).toBe("V001");
   });

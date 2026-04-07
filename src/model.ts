@@ -1,6 +1,14 @@
 import { z } from "zod";
 import type { GlobalMeta } from "zod";
 
+const SCHEMA: unique symbol = Symbol("model:schema");
+
+/** Marker placed on every class returned by `model()`. Used by `isModel()`. */
+const MODEL_MARKER = Symbol("model:marker");
+
+/** Stores the raw data object on model instances. */
+export const DATA = Symbol("model:data");
+
 /**
  * Constructor type for model classes.
  *
@@ -59,14 +67,6 @@ export type ModelConstructor<
     >;
 };
 
-const schemaSymbol = Symbol("model:schema");
-
-/** Marker placed on every class returned by `model()`. Used by `isModel()`. */
-const MODEL_MARKER = Symbol("model:marker");
-
-/** Stores the raw data object on model instances. */
-export const DATA = Symbol("model:data");
-
 /** Returns true if `cls` is a class produced by `model()` (or a subclass of one). */
 export function isModel(cls: unknown): cls is ModelConstructor {
   return typeof cls === "function" && MODEL_MARKER in cls;
@@ -102,10 +102,12 @@ export function model<S extends z.ZodObject<any>>(schema: S): ModelConstructor<S
   class Base {
     static readonly dataSchema: S = schema;
     static readonly [MODEL_MARKER] = true;
+    static [SCHEMA]: any; // hard to type correctly
+    protected [DATA]: Data;
 
     static schema() {
       // Cache per-class so each subclass gets its own ZodPipe with the right constructor
-      if (!Object.prototype.hasOwnProperty.call(this, schemaSymbol)) {
+      if (!Object.prototype.hasOwnProperty.call(this, SCHEMA)) {
         const codec = z.codec(this.dataSchema, z.instanceof(this), {
           decode: (data) => {
             return this.fromData(data);
@@ -114,9 +116,9 @@ export function model<S extends z.ZodObject<any>>(schema: S): ModelConstructor<S
             return instance[DATA];
           },
         });
-        this[schemaSymbol] = codec;
+        this[SCHEMA] = codec;
       }
-      return this[schemaSymbol]!;
+      return this[SCHEMA]!;
     }
 
     static extend(extension: z.core.$ZodLooseShape, meta?: GlobalMeta) {

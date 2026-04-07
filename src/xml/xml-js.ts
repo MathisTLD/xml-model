@@ -254,7 +254,7 @@ function isEmpty(xml: object): xml is XMLVoid {
 function getContent(xml: XMLElement) {
   // now that `alwaysChildren: true` is enforced xml.elements is always present but
   // it can be empty which means empty text
-  if (!xml.elements.length) return "";
+  if (!xml.elements?.length) return "";
   if (xml.elements.length === 1) {
     // TODO: should handle more complexe cases when node+comments ? not really useful for now but could be needed one day
     const content = xml.elements[0];

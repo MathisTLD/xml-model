@@ -219,14 +219,13 @@ export function normalizeCodecOptions<S extends z.ZodType>(
           return;
         }
         if (property.options.inlineProperty) {
-          // Unwrap and re-tag: the property tagname overrides any root tagname on the element schema.
-          ctx.result.elements.push(
-            ...res.elements.map((el) =>
-              el.type === "element" ? { ...el, name: property.tagname } : el,
-            ),
+          const elements = res.elements?.map((el) =>
+            el.type === "element" ? { ...el, name: property.tagname } : el,
           );
+          // Unwrap and re-tag: the property tagname overrides any root tagname on the element schema.
+          if (elements) (ctx.result.elements ??= []).push(...elements);
         } else {
-          ctx.result.elements.push(res);
+          (ctx.result.elements ??= []).push(res);
         }
       },
   };
@@ -329,7 +328,7 @@ function resolvePropertiesCodecOptions<S extends z.ZodObject<any>>(
   schema: S,
 ): { [K in PropKey<S>]: CodecOptions<z.ZodType> } {
   const shape = schema.def.shape as Record<string, z.ZodType>;
-  const options = {};
+  const options: Record<string, CodecOptions<z.ZodType>> = {};
   for (const [prop, fieldSchema] of Object.entries(shape)) {
     options[prop] = resolveCodecOptions(fieldSchema);
   }
@@ -358,7 +357,7 @@ function findXmlStateKey(shape: Record<string, z.ZodType>): string | undefined {
  * `z.codec` transforms and default values are **not** applied. The result is the
  * raw decoded value suitable for passing to `schema.parse()`.
  */
-export function decode<S extends z.ZodType>(schema: S, xml: XMLElement): z.input<S> {
+export function decode<S extends z.ZodType>(schema: S, xml: XMLElement | null): z.input<S> {
   const options = resolveCodecOptions(schema);
   return options.decode({ options, xml });
 }
@@ -389,7 +388,11 @@ export function parseXML<S extends z.ZodType>(
   input: string | XMLRoot | XMLElement,
 ): z.output<S> {
   if (typeof input === "string") input = XML.parse(input);
-  if (XML.isRoot(input)) input = XML.elementFromRoot(input);
+  if (XML.isRoot(input)) {
+    const el = XML.elementFromRoot(input);
+    if (!el) throw new Error("Failed to resolve XML element from root");
+    input = el;
+  }
   return schema.parse(decode(schema, input));
 }
 
@@ -450,7 +453,6 @@ registerDefault((schema) => {
     return normalizeCodecOptions(schema, {
       decode(ctx) {
         const { xml } = ctx;
-        // FIXME: typescript should warn that xml is possibly null (it doesn't)
         if (!xml) return [];
         // expects elements to be wrapped in the children of `xml`
         return (xml.elements ?? [])
@@ -566,10 +568,10 @@ registerDefault((schema) => {
   if (schema instanceof z.ZodLiteral) {
     // TODO: test with mixed types
     const values = schema.def.values;
-    const valuesFromString = Object.fromEntries(values.map((v) => [v.toString(), v]));
+    const valuesFromString = Object.fromEntries(values.map((v) => [v?.toString(), v]));
     return normalizeCodecOptions(schema, {
       decode(ctx) {
-        const raw = XML.getContent(ctx.xml);
+        const raw = XML.getContent(ctx.xml!);
         if (!(raw in valuesFromString))
           throw new Error(`Could not retrieve literal value from string "${raw}"`);
         // FIXME: handle coercion for other types of literals
@@ -585,7 +587,7 @@ registerDefault((schema) => {
   if (schema instanceof z.ZodString) {
     return normalizeCodecOptions(schema, {
       decode(ctx) {
-        return XML.getContent(ctx.xml);
+        return XML.getContent(ctx.xml!);
       },
       encode(ctx) {
         return XML.fromContent(ctx.data, ctx.options.tagname(ctx));
@@ -595,7 +597,7 @@ registerDefault((schema) => {
   if (schema instanceof z.ZodNumber) {
     return normalizeCodecOptions(schema, {
       decode(ctx) {
-        return Number(XML.getContent(ctx.xml));
+        return Number(XML.getContent(ctx.xml!));
       },
       encode(ctx) {
         return XML.fromContent(ctx.data.toString(), ctx.options.tagname(ctx));
@@ -605,7 +607,7 @@ registerDefault((schema) => {
   if (schema instanceof z.ZodBoolean) {
     return normalizeCodecOptions(schema, {
       decode(ctx) {
-        return XML.getContent(ctx.xml) === "true";
+        return XML.getContent(ctx.xml!) === "true";
       },
       encode(ctx) {
         return XML.fromContent(ctx.data.toString(), ctx.options.tagname(ctx));
@@ -614,7 +616,7 @@ registerDefault((schema) => {
   }
 });
 
-registerDefault(<S extends z.ZodObject>(schema: S) => {
+registerDefault(<S extends z.ZodType>(schema: S) => {
   if (schema instanceof z.ZodObject) {
     const options = resolvePropertiesCodecOptions(schema);
     const stateKey = findXmlStateKey(schema.def.shape as Record<string, z.ZodType>);
@@ -652,7 +654,7 @@ registerDefault(<S extends z.ZodObject>(schema: S) => {
 
         // matching and ordering sequence
         const seenProperties = new Set<string>();
-        for (const el of ctx.xml.elements) {
+        for (const el of ctx.xml!.elements!) {
           if (el.type !== "element") continue;
           const matches: string[] = [];
           for (const prop in options) {
@@ -660,7 +662,7 @@ registerDefault(<S extends z.ZodObject>(schema: S) => {
             if (options[prop].propertyMatch(el, propCtx)) {
               matches.push(prop);
               // propCtx.xml starts as a container { elements: [] } cast to XMLElement
-              propCtx.xml.elements.push(el);
+              propCtx.xml!.elements!.push(el);
             }
           }
           if (!matches.length) {
@@ -705,7 +707,7 @@ registerDefault(<S extends z.ZodObject>(schema: S) => {
           // so nothing to do in inline mode
           if (!o.inlineProperty) {
             // when not in inline mode we only care about the (at most) single matched element
-            const matches = propCtx.xml.elements as XMLElement[];
+            const matches = propCtx.xml!.elements as XMLElement[];
             if (matches.length === 0) propCtx.xml = null;
             else {
               assertSingleElement(matches);
@@ -733,7 +735,7 @@ registerDefault(<S extends z.ZodObject>(schema: S) => {
       },
       encode(ctx) {
         const { data } = ctx;
-        const result: XMLElement = {
+        const result: Required<XMLElement> = {
           type: "element",
           name: ctx.options.tagname(ctx),
           // already create the attributes record so `attr(...)` encoding handlers don't have to
@@ -753,8 +755,7 @@ registerDefault(<S extends z.ZodObject>(schema: S) => {
             }
             try {
               o.encodeAsProperty({
-                // FIXME should not need type casts
-                options: ctx.options as CodecOptions<S>,
+                options: ctx.options,
                 data,
                 property: {
                   name: item,
@@ -814,23 +815,23 @@ function peekDiscriminatorValue(
         options,
         tagname,
         // starts as a collection container; replaced with actual element or null after matching
-        xml: { elements: [] } as XMLElement,
+        xml: { type: "element", name: tagname, elements: [] } as XMLElement | null,
       };
 
-      ctx.xml.elements.forEach((el) => {
+      ctx.xml?.elements?.forEach((el) => {
         if (el.type !== "element") return;
         if (options.propertyMatch(el, propCtx)) {
-          propCtx.xml.elements.push(el);
+          propCtx.xml!.elements!.push(el);
         }
       });
       // FIXME: this mostly duplicates code from above
-      if (propCtx.xml.elements.length === 0) {
+      if (propCtx.xml!.elements!.length === 0) {
         // FIXME: this might be an error itself
         propCtx.xml = null;
-      } else if (propCtx.xml.elements.length !== 1) {
+      } else if (propCtx.xml!.elements!.length !== 1) {
         throw new Error("Matched multiple elements for a single property");
       } else {
-        propCtx.xml = propCtx.xml.elements[0] as XMLElement;
+        propCtx.xml = propCtx.xml!.elements![0] as XMLElement;
       }
 
       const result = {};
@@ -841,7 +842,7 @@ function peekDiscriminatorValue(
         property: propCtx,
         result,
       });
-      return result[discriminator];
+      return (result as any)[discriminator];
     } catch (e) {
       // FIXME: shouldn't we only catch ZodError and XMLCodecError ?
       errors.push(e);
@@ -962,7 +963,7 @@ export function xmlCodec<S extends z.ZodType>(schema: S) {
     decode(xml) {
       const xmlRoot = XML.parse(xml);
       const xmlEl = XML.elementFromRoot(xmlRoot);
-      return decode(schema, xmlEl);
+      return decode(schema, xmlEl ?? null);
     },
     encode(value) {
       const xmlEl = encode(schema, value as z.input<S>);

@@ -74,7 +74,7 @@ describe("xmlModel", () => {
   it("static toXML returns XMLRoot with correct root tag", () => {
     const car = Car.fromXML(carXml);
     const xml = Car.toXML(car);
-    const el = XML.elementFromRoot(xml);
+    const el = XML.elementFromRoot(xml)!;
     expect(el.name).toBe("car");
   });
 

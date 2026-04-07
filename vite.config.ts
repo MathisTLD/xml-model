@@ -3,35 +3,33 @@ import { defineConfig } from "vite-plus";
 
 import { Lib } from "marmotte/vite/lib";
 
-export default defineConfig(() => {
-  return {
-    lint: { options: { typeAware: true, typeCheck: true } },
-    staged: {
-      "*": "vp fmt --no-error-on-unmatched-pattern",
-    },
-    plugins: [
-      Lib({
-        // exclude bench from dts build
-        dts: {
-          exclude: [
-            "**/*.test.ts",
-            "**/*.test-*.ts",
-            // FIXME: should be default
-            "**/*.bench.ts",
-          ],
-        },
-        typedoc: {
-          // see "TypeDoc does not show inherited fields from `.extend()` subclasses"
-          entryPoints: ["./src/index.ts", "./src/xml/index.ts"],
-          entryPointStrategy: "resolve",
-        },
-      }),
-    ],
-    test: {
-      typecheck: {
-        // FIXME: type checking looks broken since migration to vite-plus
-        // enabled: true,
+export default defineConfig({
+  lint: { options: { typeAware: true, typeCheck: true } },
+  staged: {
+    "*": "vp fmt --no-error-on-unmatched-pattern",
+  },
+  plugins: [
+    Lib({
+      // exclude bench from dts build
+      dts: {
+        exclude: [
+          "**/*.test.ts",
+          "**/*.test-*.ts",
+          // FIXME: should be default
+          "**/*.bench.ts",
+        ],
       },
+      typedoc: {
+        // see "TypeDoc does not show inherited fields from `.extend()` subclasses"
+        entryPoints: ["./src/index.ts", "./src/xml/index.ts"],
+        entryPointStrategy: "resolve",
+      },
+    }),
+  ],
+  test: {
+    typecheck: {
+      // FIXME: type checking looks broken since migration to vite-plus
+      // enabled: true,
     },
-  };
+  },
 });
